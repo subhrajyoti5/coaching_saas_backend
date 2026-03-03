@@ -1,0 +1,8 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:Sahoo%402006@localhost:5432/coaching_management"
+}
+
+model TestOne {
+  id Int @id @default(autoincrement())
+}

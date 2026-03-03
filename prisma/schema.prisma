@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CoachingRole {
+  OWNER
+  TEACHER
+  STUDENT
+}
+
+enum FeeStatus {
+  PAID
+  PARTIAL
+  PENDING
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CHEQUE
+  OTHER
+}
+
+enum AttemptStatus {
+  STARTED
+  SUBMITTED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  googleId  String?  @unique
+  password  String
+  firstName String
+  lastName  String
+  phone     String?
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coachingUsers  CoachingUser[]
+  ownedCentres   CoachingCentre[]
+  studentProfile StudentProfile[]
+  createdNotices Notice[]         @relation("UserToNotice")
+  assignedBatches BatchTeacher[]  @relation("UserToBatchTeacher")
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model CoachingCentre {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  ownerId     String
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  owner           User             @relation(fields: [ownerId], references: [id])
+  coachingUsers   CoachingUser[]
+  studentProfiles StudentProfile[]
+  batches         Batch[]
+  fees            Fee[]
+  tests           Test[]
+  notices         Notice[]
+
+  @@map("coaching_centres")
+}
+
+model CoachingUser {
+  id         String       @id @default(uuid())
+  userId     String
+  coachingId String
+  role       CoachingRole
+  assignedBy String
+  assignedAt DateTime     @default(now())
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, coachingId])
+  @@map("coaching_users")
+}
+
+model Batch {
+  id          String    @id @default(uuid())
+  name        String
+  coachingId  String
+  description String?
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  coaching      CoachingCentre @relation(fields: [coachingId], references: [id])
+  batchTeachers BatchTeacher[]
+  students      StudentProfile[]
+  tests         Test[]
+  notices       Notice[]
+
+  @@map("batches")
+}
+
+model BatchTeacher {
+  id         String   @id @default(uuid())
+  teacherId  String
+  batchId    String
+  assignedBy String
+  assignedAt DateTime @default(now())
+
+  teacher User  @relation(name: "UserToBatchTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  batch   Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, batchId])
+  @@map("batch_teachers")
+}
+
+model StudentProfile {
+  id            String    @id @default(uuid())
+  userId        String
+  coachingId    String
+  batchId       String?
+  parentName    String?
+  parentPhone   String?
+  parentEmail   String?
+  gradeLevel    String?
+  admissionDate DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  batch    Batch?         @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  fees     Fee[]
+  results  Result[]
+  attempts TestAttempt[]
+
+  @@unique([userId, coachingId])
+  @@index([userId])
+  @@map("student_profiles")
+}
+
+model Fee {
+  id         String    @id @default(uuid())
+  studentId  String
+  coachingId String
+  amount     Float
+  paidAmount Float     @default(0)
+  dueDate    DateTime?
+  status     FeeStatus @default(PENDING)
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  student      StudentProfile   @relation(fields: [studentId], references: [id])
+  coaching     CoachingCentre   @relation(fields: [coachingId], references: [id])
+  transactions FeeTransaction[]
+
+  @@map("fees")
+}
+
+model FeeTransaction {
+  id            String        @id @default(uuid())
+  feeId         String
+  amount        Float
+  paymentMethod PaymentMethod @default(CASH)
+  referenceId   String?
+  notes         String?
+  recordedBy    String
+  createdAt     DateTime      @default(now())
+
+  fee Fee @relation(fields: [feeId], references: [id], onDelete: Cascade)
+
+  @@map("fee_transactions")
+}
+
+model Test {
+  id        String    @id @default(uuid())
+  title     String
+  coachingId String
+  batchId   String
+  duration  Int
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+  startDate DateTime
+  endDate   DateTime
+  maxScore  Float
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  coaching  CoachingCentre @relation(fields: [coachingId], references: [id])
+  batch     Batch          @relation(fields: [batchId], references: [id])
+  questions Question[]
+  results   Result[]
+  attempts  TestAttempt[]
+
+  @@map("tests")
+}
+
+model TestAttempt {
+  id          String        @id @default(uuid())
+  testId      String
+  studentId   String
+  status      AttemptStatus @default(STARTED)
+  startedAt   DateTime      @default(now())
+  submittedAt DateTime?
+
+  test    Test           @relation(fields: [testId], references: [id], onDelete: Cascade)
+  student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, studentId])
+  @@map("test_attempts")
+}
+
+model Question {
+  id            String   @id @default(uuid())
+  testId        String
+  questionText  String
+  optionA       String
+  optionB       String
+  optionC       String
+  optionD       String
+  correctAnswer String
+  marks         Float    @default(1)
+  createdAt     DateTime @default(now())
+
+  test Test @relation(fields: [testId], references: [id])
+
+  @@map("questions")
+}
+
+model Result {
+  id          String   @id @default(uuid())
+  testId      String
+  studentId   String
+  score       Float
+  totalMarks  Float
+  percentage  Float
+  passed      Boolean
+  submittedAt DateTime @default(now())
+
+  test    Test           @relation(fields: [testId], references: [id])
+  student StudentProfile @relation(fields: [studentId], references: [id])
+
+  @@unique([testId, studentId])
+  @@map("results")
+}
+
+model Notice {
+  id              String    @id @default(uuid())
+  coachingId      String
+  batchId         String?
+  title           String
+  content         String
+  createdBy       String
+  createdByRole   CoachingRole
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  batch    Batch?         @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  creator  User           @relation(name: "UserToNotice", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@map("notices")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
