@@ -48,8 +48,8 @@ const findOrCreateUserByEmail = async (email, firstName = 'User', lastName = '')
 };
 
 // Add teacher by email: creates placeholder user if not existing
-const addTeacherToCoaching = async (email, coachingId, addedBy) => {
-  const user = await findOrCreateUserByEmail(email, 'Teacher');
+const addTeacherToCoaching = async (email, coachingId, addedBy, teacherData = {}) => {
+  const user = await findOrCreateUserByEmail(email, teacherData.firstName || 'Teacher', teacherData.lastName || '');
   const userId = user.id;
 
   const existing = await prisma.coachingUser.findFirst({ where: { userId, coachingId } });

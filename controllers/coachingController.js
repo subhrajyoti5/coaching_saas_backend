@@ -44,9 +44,9 @@ const getUserCoachingCenters = async (req, res) => {
 // ADD TEACHER BY EMAIL (NOW USED FOR ONBOARDING)
 const addTeacherToCoaching = async (req, res) => {
   try {
-    const { email, coachingId } = req.body;
+    const { email, coachingId, teacherData } = req.body;
     const addedBy = req.user.userId;
-    const assignment = await coachingService.addTeacherToCoaching(email, coachingId, addedBy);
+    const assignment = await coachingService.addTeacherToCoaching(email, coachingId, addedBy, teacherData);
     return res.status(HTTP_STATUS.SUCCESS).json({
       message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
       assignment
