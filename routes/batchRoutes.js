@@ -21,12 +21,6 @@ const { validateCreateBatch, validateAssignTeacher, validateAssignStudent } = re
 // Create a new batch (Owner and Teacher can access)
 router.post('/', authenticateToken, teacherOrOwner, validateCoachingAccess, validateCreateBatch, createBatch);
 
-// Get batch by ID (Owner and Teacher can access)
-router.get('/:batchId', authenticateToken, teacherOrOwner, validateBatchAccess, getBatch);
-
-// Get all batches for a coaching center (Owner and Teacher can access)
-router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getBatchesByCoaching);
-
 // Assign a teacher to a batch (Owner and Teacher can access)
 router.post('/assign-teacher', authenticateToken, teacherOrOwner, validateAssignTeacher, assignTeacherToBatch);
 
@@ -39,13 +33,22 @@ router.post('/assign-student', authenticateToken, teacherOrOwner, validateAssign
 // Remove a student from a batch (Owner and Teacher can access)
 router.post('/remove-student', authenticateToken, teacherOrOwner, removeStudentFromBatch);
 
-// Get all teachers assigned to a batch (Owner and Teacher can access)
+// SPECIFIC ROUTES BEFORE GENERIC :batchId ROUTES
+// Get all teachers assigned to a batch
 router.get('/:batchId/teachers', authenticateToken, teacherOrOwner, validateBatchAccess, getTeachersByBatch);
 
-// Get all students in a batch (Owner and Teacher can access)
+// Get all students in a batch
 router.get('/:batchId/students', authenticateToken, teacherOrOwner, validateBatchAccess, getStudentsByBatch);
+
+// Get batch by ID (Owner and Teacher can access)
+router.get('/:batchId', authenticateToken, teacherOrOwner, validateBatchAccess, getBatch);
+
+// Get all batches for a coaching center (Owner and Teacher can access)
+router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getBatchesByCoaching);
 
 // Deactivate a batch (Owner only)
 router.delete('/:batchId', authenticateToken, ownerOnly, validateBatchAccess, deleteBatch);
+
+module.exports = router;
 
 module.exports = router;
