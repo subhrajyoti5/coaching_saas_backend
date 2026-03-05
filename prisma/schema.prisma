@@ -39,6 +39,7 @@ model User {
   firstName String
   lastName  String
   phone     String?
+  role      String   @default("USER")
   isActive  Boolean  @default(true)
   deletedAt DateTime?
   createdAt DateTime @default(now())
@@ -51,6 +52,7 @@ model User {
   assignedBatches BatchTeacher[]  @relation("UserToBatchTeacher")
   refreshTokens  RefreshToken[]
   auditLogs      AuditLog[]
+  studentBatches StudentBatch[]
 
   @@map("users")
 }
@@ -84,6 +86,7 @@ model CoachingCentre {
   fees            Fee[]
   tests           Test[]
   notices         Notice[]
+  studentBatches  StudentBatch[]
 
   @@map("coaching_centres")
 }
@@ -113,11 +116,12 @@ model Batch {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  coaching      CoachingCentre @relation(fields: [coachingId], references: [id])
-  batchTeachers BatchTeacher[]
-  students      StudentProfile[]
-  tests         Test[]
-  notices       Notice[]
+  coaching       CoachingCentre @relation(fields: [coachingId], references: [id])
+  batchTeachers  BatchTeacher[]
+  students       StudentProfile[]
+  tests          Test[]
+  notices        Notice[]
+  studentBatches StudentBatch[]
 
   @@map("batches")
 }
@@ -298,4 +302,24 @@ model AuditLog {
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("audit_logs")
+}
+
+model StudentBatch {
+  id             String   @id @default(uuid())
+  studentId      String
+  batchId        String
+  coachingId     String
+  enrollmentDate DateTime @default(now())
+  isActive       Boolean  @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  student   User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch     Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  coaching  CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, batchId])
+  @@index([coachingId])
+  @@map("student_batches")
 }
