@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
 const createBatch = async (batchData, requesterId) => {
@@ -58,8 +59,36 @@ const removeTeacherFromBatch = async (teacherId, batchId, requesterId) => {
 };
 
 const assignStudentToBatch = async (studentId, batchId, requesterId) => {
-  const studentProfile = await prisma.studentProfile.findUnique({ where: { id: studentId } });
-  if (!studentProfile) throw new Error('Student profile not found');
+  // First, check if this is a StudentProfile ID or a User ID
+  let studentProfile = await prisma.studentProfile.findUnique({ where: { id: studentId } });
+  
+  // If not found as StudentProfile, try to find it by userId in CoachingUser
+  if (!studentProfile) {
+    // studentId might actually be a userId for a student without StudentProfile
+    const coachingUser = await prisma.coachingUser.findFirst({
+      where: { userId: studentId, role: ROLES.STUDENT }
+    });
+    
+    if (!coachingUser) {
+      throw new Error('Student not found');
+    }
+    
+    // Auto-create StudentProfile for this student
+    const batch = await prisma.batch.findFirst({ where: { id: batchId, isActive: true } });
+    if (!batch) throw new Error('Batch not found');
+    
+    studentProfile = await prisma.studentProfile.create({
+      data: {
+        userId: studentId,
+        coachingId: batch.coachingId,
+        batchId: batchId
+      }
+    });
+    
+    await audit({ userId: requesterId, action: 'CREATE_STUDENT_PROFILE', entityType: 'STUDENT_PROFILE', entityId: studentProfile.id, metadata: { coachingId: batch.coachingId } });
+    await audit({ userId: requesterId, action: 'ASSIGN_STUDENT_BATCH', entityType: 'STUDENT_PROFILE', entityId: studentProfile.id, metadata: { batchId } });
+    return studentProfile;
+  }
 
   const batch = await prisma.batch.findFirst({ where: { id: batchId, isActive: true } });
   if (!batch) throw new Error('Batch not found');

@@ -142,6 +142,7 @@ const getTeachersByCoaching = async (coachingId) => {
 };
 
 const getStudentsByCoaching = async (coachingId) => {
+  // Get all students with StudentProfile
   const studentProfiles = await prisma.studentProfile.findMany({
     where: { coachingId },
     include: {
@@ -149,16 +150,48 @@ const getStudentsByCoaching = async (coachingId) => {
     }
   });
 
-  return studentProfiles.map(sp => ({
-    id: sp.id,  // StudentProfile ID (required for assignment)
-    userId: sp.userId,
-    email: sp.user.email,
-    firstName: sp.user.firstName,
-    lastName: sp.user.lastName,
-    phone: sp.user.phone,
-    gradeLevel: sp.gradeLevel,
-    batchId: sp.batchId
-  }));
+  const profileMap = new Map(studentProfiles.map(sp => [sp.userId, sp]));
+
+  // Also get students from CoachingUser table who might not have StudentProfile yet
+  const coachingUsers = await prisma.coachingUser.findMany({
+    where: { coachingId, role: ROLES.STUDENT },
+    include: {
+      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } }
+    }
+  });
+
+  // Merge results: use StudentProfile if exists, otherwise create from CoachingUser
+  const allStudents = coachingUsers.map(cu => {
+    if (profileMap.has(cu.userId)) {
+      const sp = profileMap.get(cu.userId);
+      return {
+        id: sp.id,
+        userId: sp.userId,
+        email: sp.user.email,
+        firstName: sp.user.firstName,
+        lastName: sp.user.lastName,
+        phone: sp.user.phone,
+        gradeLevel: sp.gradeLevel,
+        batchId: sp.batchId
+      };
+    } else {
+      // Student exists in CoachingUser but no StudentProfile yet
+      // Return user data with a note (frontend can handle this)
+      return {
+        id: null,  // Will need to create StudentProfile first
+        userId: cu.userId,
+        email: cu.user.email,
+        firstName: cu.user.firstName,
+        lastName: cu.user.lastName,
+        phone: cu.user.phone,
+        gradeLevel: null,
+        batchId: null,
+        profileMissing: true
+      };
+    }
+  });
+
+  return allStudents;
 };
 
 const deactivateCoaching = async (coachingId, requesterId) => {
