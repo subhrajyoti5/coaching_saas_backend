@@ -30,18 +30,7 @@ const globalLimiter = rateLimit({
   max: 200,
   message: { error: "Too many requests", message: "Please try again later" },
   standardHeaders: true,
-  legacyHeaders: false,
-<<<<<<< HEAD
-  skip: (req, res) => {
-    // Skip validation errors
-    return false;
-  },
-  handler: (req, res, next, options) => {
-    res.status(options.statusCode).json(options.message);
-  }
-=======
-  keyGenerator: (req, res) => req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip
->>>>>>> 5267863 (local server.js changes)
+  legacyHeaders: false
 });
 app.use(globalLimiter);
 
