@@ -24,7 +24,7 @@ const createCoaching = async (coachingData, creatorId) => {
     return newCoaching;
   });
 
-  await audit({ userId: creatorId, action: 'CREATE_COACHING', entityType: 'COACHING', entityId: coaching.id });
+  await audit({ userId: creatorId, action: 'CREATE_COACHING', entityType: 'COACHING', entityId: coaching.id, metadata: { coachingId: coaching.id } });
   return coaching;
 };
 
@@ -63,7 +63,7 @@ const addTeacherToCoaching = async (email, coachingId, addedBy, teacherData = {}
     data: { userId, coachingId, role: ROLES.TEACHER, assignedBy: addedBy }
   });
 
-  await audit({ userId: addedBy, action: 'ADD_TEACHER', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { targetEmail: email } });
+  await audit({ userId: addedBy, action: 'ADD_TEACHER', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { coachingId, targetEmail: email } });
   return coachingUser;
 };
 
@@ -99,7 +99,7 @@ const addStudentToCoaching = async (email, coachingId, addedBy, studentData = {}
     return { coachingUser, studentProfile };
   });
 
-  await audit({ userId: addedBy, action: 'ADD_STUDENT', entityType: 'STUDENT_PROFILE', entityId: result.studentProfile.id, metadata: { targetEmail: email } });
+  await audit({ userId: addedBy, action: 'ADD_STUDENT', entityType: 'STUDENT_PROFILE', entityId: result.studentProfile.id, metadata: { coachingId, targetEmail: email } });
   return result;
 };
 
@@ -157,7 +157,7 @@ const deactivateCoaching = async (coachingId, requesterId) => {
     where: { id: coachingId },
     data: { isActive: false, deletedAt: new Date() }
   });
-  await audit({ userId: requesterId, action: 'DEACTIVATE_COACHING', entityType: 'COACHING', entityId: coachingId });
+  await audit({ userId: requesterId, action: 'DEACTIVATE_COACHING', entityType: 'COACHING', entityId: coachingId, metadata: { coachingId } });
   return coaching;
 };
 
@@ -203,11 +203,11 @@ const removeStudentFromCoaching = async (userId, coachingId, requesterId) => {
     });
   });
 
-  await audit({ userId: requesterId, action: 'REMOVE_STUDENT', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { targetUserId: userId } });
+  await audit({ userId: requesterId, action: 'REMOVE_STUDENT', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { coachingId, targetUserId: userId } });
   return { success: true };
 };
 
-// Get coaching center statistics (counts)
+// Get coaching center statistics (counts) - OPTIMIZED with Promise.all
 const getCoachingStats = async (coachingId) => {
   const [studentCount, teacherCount, batchCount] = await Promise.all([
     prisma.coachingUser.count({
@@ -217,18 +217,22 @@ const getCoachingStats = async (coachingId) => {
       where: { coachingId, role: ROLES.TEACHER }
     }),
     prisma.batch.count({
-      where: { coachingId, isActive: true }
+      where: { coachingId, isActive: true, deletedAt: null }
     })
   ]);
 
   return { studentCount, teacherCount, batchCount };
 };
 
-// Get recent audit logs for a coaching center (activity history)
+// Get recent audit logs for a coaching center (activity history) - FILTERED BY COACHING
 const getCoachingAuditLogs = async (coachingId, limit = 20) => {
   const logs = await prisma.auditLog.findMany({
     where: {
-      action: { in: ['ADD_STUDENT', 'ADD_TEACHER', 'REMOVE_STUDENT', 'UPDATE_STUDENT', 'CREATE_COACHING'] }
+      action: { in: ['ADD_STUDENT', 'ADD_TEACHER', 'REMOVE_STUDENT', 'UPDATE_STUDENT', 'CREATE_COACHING'] },
+      metadata: {
+        path: ['coachingId'],
+        equals: coachingId
+      }
     },
     include: {
       user: { select: { id: true, email: true, firstName: true, lastName: true } }
