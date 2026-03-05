@@ -26,11 +26,12 @@ app.use(cors({
 
 // Global Rate Limiter: protect from basic DoS/brute force
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // 200 requests per window
-  message: { error: 'Too many requests', message: 'Please try again later' },
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  message: { error: "Too many requests", message: "Please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
+<<<<<<< HEAD
   skip: (req, res) => {
     // Skip validation errors
     return false;
@@ -38,6 +39,9 @@ const globalLimiter = rateLimit({
   handler: (req, res, next, options) => {
     res.status(options.statusCode).json(options.message);
   }
+=======
+  keyGenerator: (req, res) => req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip
+>>>>>>> 5267863 (local server.js changes)
 });
 app.use(globalLimiter);
 
