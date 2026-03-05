@@ -6,6 +6,10 @@ require('dotenv').config();
 
 const app = express();
 
+// Trust proxy - required when behind reverse proxy (Nginx, load balancer, etc)
+// This tells Express to trust X-Forwarded-For header from the proxy
+app.set('trust proxy', 1);
+
 // Import database connection
 const prisma = require('./config/database');
 
