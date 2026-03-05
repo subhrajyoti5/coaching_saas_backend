@@ -54,6 +54,9 @@ model User {
   auditLogs      AuditLog[]
   studentBatches StudentBatch[]
 
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
   @@map("users")
 }
 
@@ -66,6 +69,7 @@ model RefreshToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("refresh_tokens")
 }
 
@@ -88,6 +92,8 @@ model CoachingCentre {
   notices         Notice[]
   studentBatches  StudentBatch[]
 
+  @@index([ownerId])
+  @@index([isActive])
   @@map("coaching_centres")
 }
 
@@ -103,6 +109,9 @@ model CoachingUser {
   coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
 
   @@unique([userId, coachingId])
+  @@index([userId, coachingId])
+  @@index([coachingId, role])
+  @@index([role])
   @@map("coaching_users")
 }
 
@@ -123,6 +132,8 @@ model Batch {
   notices        Notice[]
   studentBatches StudentBatch[]
 
+  @@index([coachingId, isActive])
+  @@index([isActive])
   @@map("batches")
 }
 
@@ -137,6 +148,8 @@ model BatchTeacher {
   batch   Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   @@unique([teacherId, batchId])
+  @@index([batchId])
+  @@index([teacherId])
   @@map("batch_teachers")
 }
 
@@ -162,6 +175,8 @@ model StudentProfile {
 
   @@unique([userId, coachingId])
   @@index([userId])
+  @@index([coachingId, batchId])
+  @@index([batchId])
   @@map("student_profiles")
 }
 
@@ -181,6 +196,9 @@ model Fee {
   coaching     CoachingCentre   @relation(fields: [coachingId], references: [id])
   transactions FeeTransaction[]
 
+  @@index([studentId, coachingId])
+  @@index([coachingId, status])
+  @@index([status])
   @@map("fees")
 }
 
@@ -196,6 +214,7 @@ model FeeTransaction {
 
   fee Fee @relation(fields: [feeId], references: [id], onDelete: Cascade)
 
+  @@index([feeId])
   @@map("fee_transactions")
 }
 
@@ -219,6 +238,9 @@ model Test {
   results   Result[]
   attempts  TestAttempt[]
 
+  @@index([coachingId, isActive])
+  @@index([batchId])
+  @@index([startDate, endDate])
   @@map("tests")
 }
 
@@ -234,6 +256,9 @@ model TestAttempt {
   student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@unique([testId, studentId])
+  @@index([studentId])
+  @@index([testId, studentId])
+  @@index([status])
   @@map("test_attempts")
 }
 
@@ -251,6 +276,7 @@ model Question {
 
   test Test @relation(fields: [testId], references: [id])
 
+  @@index([testId])
   @@map("questions")
 }
 
@@ -268,6 +294,9 @@ model Result {
   student StudentProfile @relation(fields: [studentId], references: [id])
 
   @@unique([testId, studentId])
+  @@index([studentId])
+  @@index([testId])
+  @@index([passed])
   @@map("results")
 }
 
@@ -286,6 +315,9 @@ model Notice {
   batch    Batch?         @relation(fields: [batchId], references: [id], onDelete: SetNull)
   creator  User           @relation(name: "UserToNotice", fields: [createdBy], references: [id], onDelete: Cascade)
 
+  @@index([coachingId])
+  @@index([batchId])
+  @@index([createdBy])
   @@map("notices")
 }
 
@@ -301,6 +333,9 @@ model AuditLog {
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -320,6 +355,8 @@ model StudentBatch {
   coaching  CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, batchId])
-  @@index([coachingId])
+  @@index([studentId])
+  @@index([batchId])
+  @@index([coachingId, isActive])
   @@map("student_batches")
 }
