@@ -142,14 +142,23 @@ const getTeachersByCoaching = async (coachingId) => {
 };
 
 const getStudentsByCoaching = async (coachingId) => {
-  const coachingUsers = await prisma.coachingUser.findMany({
-    where: { coachingId, role: ROLES.STUDENT },
+  const studentProfiles = await prisma.studentProfile.findMany({
+    where: { coachingId },
     include: {
-      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true, isActive: true } }
+      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } }
     }
   });
 
-  return coachingUsers.map(cu => cu.user);
+  return studentProfiles.map(sp => ({
+    id: sp.id,  // StudentProfile ID (required for assignment)
+    userId: sp.userId,
+    email: sp.user.email,
+    firstName: sp.user.firstName,
+    lastName: sp.user.lastName,
+    phone: sp.user.phone,
+    gradeLevel: sp.gradeLevel,
+    batchId: sp.batchId
+  }));
 };
 
 const deactivateCoaching = async (coachingId, requesterId) => {
