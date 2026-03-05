@@ -30,7 +30,14 @@ const globalLimiter = rateLimit({
   max: 200, // 200 requests per window
   message: { error: 'Too many requests', message: 'Please try again later' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req, res) => {
+    // Skip validation errors
+    return false;
+  },
+  handler: (req, res, next, options) => {
+    res.status(options.statusCode).json(options.message);
+  }
 });
 app.use(globalLimiter);
 
