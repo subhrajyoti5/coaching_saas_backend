@@ -209,19 +209,27 @@ const removeStudentFromCoaching = async (userId, coachingId, requesterId) => {
 
 // Get coaching center statistics (counts) - OPTIMIZED with Promise.all
 const getCoachingStats = async (coachingId) => {
-  const [studentCount, teacherCount, batchCount] = await Promise.all([
-    prisma.coachingUser.count({
-      where: { coachingId, role: ROLES.STUDENT }
-    }),
-    prisma.coachingUser.count({
-      where: { coachingId, role: ROLES.TEACHER }
-    }),
-    prisma.batch.count({
-      where: { coachingId, isActive: true, deletedAt: null }
-    })
-  ]);
+  try {
+    console.log('🔍 getCoachingStats: querying for coachingId =', coachingId);
+    
+    const [studentCount, teacherCount, batchCount] = await Promise.all([
+      prisma.coachingUser.count({
+        where: { coachingId, role: ROLES.STUDENT }
+      }),
+      prisma.coachingUser.count({
+        where: { coachingId, role: ROLES.TEACHER }
+      }),
+      prisma.batch.count({
+        where: { coachingId, isActive: true, deletedAt: null }
+      })
+    ]);
 
-  return { studentCount, teacherCount, batchCount };
+    console.log('📊 Query results:', { studentCount, teacherCount, batchCount });
+    return { studentCount, teacherCount, batchCount };
+  } catch (error) {
+    console.error('❌ getCoachingStats error:', error);
+    throw error;
+  }
 };
 
 // Get recent audit logs for a coaching center (activity history) - FILTERED BY COACHING

@@ -163,9 +163,14 @@ const deleteStudent = async (req, res) => {
 const getCoachingStats = async (req, res) => {
   try {
     const { coachingId } = req.params;
+    console.log('📊 Fetching stats for coaching:', coachingId);
+    
     const stats = await coachingService.getCoachingStats(coachingId);
+    console.log('✅ Stats fetched:', stats);
+    
     return res.status(HTTP_STATUS.SUCCESS).json({ stats });
   } catch (error) {
+    console.error('❌ Error fetching coaching statistics:', error);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       error: 'Failed to fetch coaching statistics',
       message: error.message
