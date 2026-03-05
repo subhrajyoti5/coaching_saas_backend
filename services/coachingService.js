@@ -53,7 +53,11 @@ const addTeacherToCoaching = async (email, coachingId, addedBy, teacherData = {}
   const userId = user.id;
 
   const existing = await prisma.coachingUser.findFirst({ where: { userId, coachingId } });
-  if (existing) throw new Error('User is already a member of this coaching center');
+  if (existing) {
+    const error = new Error('DUPLICATE_MEMBER:This teacher is already added to your coaching center');
+    error.code = 'DUPLICATE_MEMBER';
+    throw error;
+  }
 
   const coachingUser = await prisma.coachingUser.create({
     data: { userId, coachingId, role: ROLES.TEACHER, assignedBy: addedBy }
@@ -69,7 +73,11 @@ const addStudentToCoaching = async (email, coachingId, addedBy, studentData = {}
   const userId = user.id;
 
   const existing = await prisma.coachingUser.findFirst({ where: { userId, coachingId } });
-  if (existing) throw new Error('User is already a member of this coaching center');
+  if (existing) {
+    const error = new Error('DUPLICATE_MEMBER:This student is already added to your coaching center');
+    error.code = 'DUPLICATE_MEMBER';
+    throw error;
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const coachingUser = await tx.coachingUser.create({
@@ -153,10 +161,93 @@ const deactivateCoaching = async (coachingId, requesterId) => {
   return coaching;
 };
 
+// Update student profile (firstName, lastName)
+const updateStudentProfile = async (userId, coachingId, updateData, requesterId) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('User not found');
+
+  const coachingUser = await prisma.coachingUser.findFirst({
+    where: { userId, coachingId, role: ROLES.STUDENT }
+  });
+  if (!coachingUser) throw new Error('Student not found in this coaching center');
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      firstName: updateData.firstName || user.firstName,
+      lastName: updateData.lastName || user.lastName
+    }
+  });
+
+  await audit({ userId: requesterId, action: 'UPDATE_STUDENT', entityType: 'USER', entityId: userId, metadata: { coachingId } });
+  return updated;
+};
+
+// Remove student from coaching center (soft delete)
+const removeStudentFromCoaching = async (userId, coachingId, requesterId) => {
+  const coachingUser = await prisma.coachingUser.findFirst({
+    where: { userId, coachingId, role: ROLES.STUDENT }
+  });
+  if (!coachingUser) throw new Error('Student not found in this coaching center');
+
+  await prisma.$transaction(async (tx) => {
+    // Remove student from coaching
+    await tx.coachingUser.deleteMany({
+      where: { userId, coachingId }
+    });
+
+    // Soft delete student profile
+    await tx.studentProfile.updateMany({
+      where: { userId, coachingId },
+      data: { isActive: false, deletedAt: new Date() }
+    });
+  });
+
+  await audit({ userId: requesterId, action: 'REMOVE_STUDENT', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { targetUserId: userId } });
+  return { success: true };
+};
+
+// Get coaching center statistics (counts)
+const getCoachingStats = async (coachingId) => {
+  const [studentCount, teacherCount, batchCount] = await Promise.all([
+    prisma.coachingUser.count({
+      where: { coachingId, role: ROLES.STUDENT }
+    }),
+    prisma.coachingUser.count({
+      where: { coachingId, role: ROLES.TEACHER }
+    }),
+    prisma.batch.count({
+      where: { coachingId, isActive: true }
+    })
+  ]);
+
+  return { studentCount, teacherCount, batchCount };
+};
+
+// Get recent audit logs for a coaching center (activity history)
+const getCoachingAuditLogs = async (coachingId, limit = 20) => {
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      action: { in: ['ADD_STUDENT', 'ADD_TEACHER', 'REMOVE_STUDENT', 'UPDATE_STUDENT', 'CREATE_COACHING'] }
+    },
+    include: {
+      user: { select: { id: true, email: true, firstName: true, lastName: true } }
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit
+  });
+
+  return logs;
+};
+
 module.exports = {
   createCoaching,
   addTeacherToCoaching,
   addStudentToCoaching,
+  updateStudentProfile,
+  removeStudentFromCoaching,
+  getCoachingStats,
+  getCoachingAuditLogs,
   getCoachingById,
   getUserCoachingCenters,
   getTeachersByCoaching,

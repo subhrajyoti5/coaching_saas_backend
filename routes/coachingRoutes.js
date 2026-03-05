@@ -6,6 +6,10 @@ const {
   getUserCoachingCenters,
   addTeacherToCoaching,
   addStudentToCoaching,
+  updateStudent,
+  deleteStudent,
+  getCoachingStats,
+  getCoachingAuditLogs,
   getTeachersByCoaching,
   getStudentsByCoaching,
   deactivateCoaching
@@ -36,6 +40,18 @@ router.get('/:coachingId/teachers', authenticateToken, validateCoachingAccess, g
 
 // Get all students for a coaching center
 router.get('/:coachingId/students', authenticateToken, validateCoachingAccess, getStudentsByCoaching);
+
+// Update a student (Owner only)
+router.put('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, updateStudent);
+
+// Delete a student from coaching (Owner only)
+router.delete('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, deleteStudent);
+
+// Get coaching statistics (student, teacher, batch counts)
+router.get('/:coachingId/stats', authenticateToken, validateCoachingAccess, getCoachingStats);
+
+// Get coaching audit logs (activity history)
+router.get('/:coachingId/audit-logs', authenticateToken, validateCoachingAccess, getCoachingAuditLogs);
 
 // Deactivate a coaching center (Owner only)
 router.delete('/:coachingId', authenticateToken, ownerOnly, deactivateCoaching);

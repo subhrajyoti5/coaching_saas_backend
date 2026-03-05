@@ -124,12 +124,80 @@ const deactivateCoaching = async (req, res) => {
   }
 };
 
+// Update student profile (name)
+const updateStudent = async (req, res) => {
+  try {
+    const { coachingId, studentId } = req.params;
+    const { firstName, lastName } = req.body;
+    const updated = await coachingService.updateStudentProfile(studentId, coachingId, { firstName, lastName }, req.user.userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+      student: updated
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to update student',
+      message: error.message
+    });
+  }
+};
+
+// Delete student from coaching center
+const deleteStudent = async (req, res) => {
+  try {
+    const { coachingId, studentId } = req.params;
+    const result = await coachingService.removeStudentFromCoaching(studentId, coachingId, req.user.userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'Student removed successfully',
+      ...result
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to remove student',
+      message: error.message
+    });
+  }
+};
+
+// Get coaching center statistics (counts)
+const getCoachingStats = async (req, res) => {
+  try {
+    const { coachingId } = req.params;
+    const stats = await coachingService.getCoachingStats(coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ stats });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to fetch coaching statistics',
+      message: error.message
+    });
+  }
+};
+
+// Get coaching center audit logs (activity history)
+const getCoachingAuditLogs = async (req, res) => {
+  try {
+    const { coachingId } = req.params;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 20;
+    const logs = await coachingService.getCoachingAuditLogs(coachingId, limit);
+    return res.status(HTTP_STATUS.SUCCESS).json({ logs });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to fetch audit logs',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createCoaching,
   getCoachingById,
   getUserCoachingCenters,
   addTeacherToCoaching,
   addStudentToCoaching,
+  updateStudent,
+  deleteStudent,
+  getCoachingStats,
+  getCoachingAuditLogs,
   getTeachersByCoaching,
   getStudentsByCoaching,
   deactivateCoaching
