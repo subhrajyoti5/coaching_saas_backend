@@ -23,9 +23,6 @@ const { validateCreateCoaching, validateAddTeacher, validateAddStudent } = requi
 // Create a new coaching center (Any authenticated user can create one and become an owner)
 router.post('/', authenticateToken, validateCreateCoaching, createCoaching);
 
-// Get coaching center by ID
-router.get('/:coachingId', authenticateToken, getCoachingById);
-
 // Get all coaching centers for the authenticated user
 router.get('/', authenticateToken, getUserCoachingCenters);
 
@@ -35,11 +32,18 @@ router.post('/add-teacher', authenticateToken, ownerOnly, validateAddTeacher, ad
 // Add a student to a coaching center (Owner only)
 router.post('/add-student', authenticateToken, ownerOnly, validateAddStudent, addStudentToCoaching);
 
+// SPECIFIC ROUTES BEFORE GENERIC /:coachingId ROUTE
 // Get all teachers for a coaching center
 router.get('/:coachingId/teachers', authenticateToken, validateCoachingAccess, getTeachersByCoaching);
 
 // Get all students for a coaching center
 router.get('/:coachingId/students', authenticateToken, validateCoachingAccess, getStudentsByCoaching);
+
+// Get coaching statistics (student, teacher, batch counts)
+router.get('/:coachingId/stats', authenticateToken, validateCoachingAccess, getCoachingStats);
+
+// Get coaching audit logs (activity history)
+router.get('/:coachingId/audit-logs', authenticateToken, validateCoachingAccess, getCoachingAuditLogs);
 
 // Update a student (Owner only)
 router.put('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, updateStudent);
@@ -47,11 +51,9 @@ router.put('/:coachingId/students/:studentId', authenticateToken, ownerOnly, val
 // Delete a student from coaching (Owner only)
 router.delete('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, deleteStudent);
 
-// Get coaching statistics (student, teacher, batch counts)
-router.get('/:coachingId/stats', authenticateToken, validateCoachingAccess, getCoachingStats);
-
-// Get coaching audit logs (activity history)
-router.get('/:coachingId/audit-logs', authenticateToken, validateCoachingAccess, getCoachingAuditLogs);
+// Generic route - MUST BE LAST
+// Get coaching center by ID
+router.get('/:coachingId', authenticateToken, getCoachingById);
 
 // Deactivate a coaching center (Owner only)
 router.delete('/:coachingId', authenticateToken, ownerOnly, deactivateCoaching);
