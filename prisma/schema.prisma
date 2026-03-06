@@ -31,6 +31,11 @@ enum AttemptStatus {
   SUBMITTED
 }
 
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -53,6 +58,7 @@ model User {
   refreshTokens  RefreshToken[]
   auditLogs      AuditLog[]
   studentBatches StudentBatch[]
+  attendanceMarked Attendance[]   @relation("UserToAttendance")
 
   @@index([email])
   @@index([role])
@@ -91,6 +97,7 @@ model CoachingCentre {
   tests           Test[]
   notices         Notice[]
   studentBatches  StudentBatch[]
+  attendanceRecords Attendance[]
 
   @@index([ownerId])
   @@index([isActive])
@@ -131,6 +138,7 @@ model Batch {
   tests          Test[]
   notices        Notice[]
   studentBatches StudentBatch[]
+  attendanceRecords Attendance[]
 
   @@index([coachingId, isActive])
   @@index([isActive])
@@ -172,6 +180,7 @@ model StudentProfile {
   fees     Fee[]
   results  Result[]
   attempts TestAttempt[]
+  attendance Attendance[]
 
   @@unique([userId, coachingId])
   @@index([userId])
@@ -319,6 +328,31 @@ model Notice {
   @@index([batchId])
   @@index([createdBy])
   @@map("notices")
+}
+
+model Attendance {
+  id         String           @id @default(uuid())
+  coachingId String
+  batchId    String
+  studentId  String
+  classDate  DateTime
+  status     AttendanceStatus @default(ABSENT)
+  markedBy   String
+  remarks    String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  batch    Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  student  StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  marker   User           @relation("UserToAttendance", fields: [markedBy], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, batchId, classDate])
+  @@index([coachingId, classDate])
+  @@index([batchId, classDate])
+  @@index([studentId, classDate])
+  @@index([markedBy])
+  @@map("attendance")
 }
 
 model AuditLog {

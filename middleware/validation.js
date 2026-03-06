@@ -101,6 +101,22 @@ const validateCreateNotice = [
   handleValidationErrors
 ];
 
+const validateMarkBatchAttendance = [
+  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('classDate').optional().isISO8601().withMessage('classDate must be a valid ISO date'),
+  body('records').isArray({ min: 1 }).withMessage('records must be a non-empty array'),
+  body('records.*.studentId').isUUID().withMessage('Valid studentId is required for each record'),
+  body('records.*.status').isIn(['PRESENT', 'ABSENT']).withMessage('status must be PRESENT or ABSENT'),
+  body('records.*.remarks').optional({ nullable: true }).isString().withMessage('remarks must be a string'),
+  handleValidationErrors
+];
+
+const validateUpdateAttendance = [
+  body('status').isIn(['PRESENT', 'ABSENT']).withMessage('status must be PRESENT or ABSENT'),
+  body('remarks').optional({ nullable: true }).isString().withMessage('remarks must be a string'),
+  handleValidationErrors
+];
+
 module.exports = {
   validateUserRegistration,
   validateUserLogin,
@@ -113,5 +129,7 @@ module.exports = {
   validateCreateTest,
   validateCreateQuestion,
   validateCreateFee,
-  validateCreateNotice
+  validateCreateNotice,
+  validateMarkBatchAttendance,
+  validateUpdateAttendance
 };

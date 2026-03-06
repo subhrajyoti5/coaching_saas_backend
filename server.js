@@ -46,6 +46,7 @@ app.use('/api/batch', require('./routes/batchRoutes'));
 app.use('/api/fees', require('./routes/feeRoutes'));
 app.use('/api/tests', require('./routes/testRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
+app.use('/api/attendance', require('./routes/attendanceRoutes'));
 
 // Health check endpoint
 app.get('/', (req, res) => {
