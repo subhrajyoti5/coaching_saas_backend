@@ -2,8 +2,26 @@ const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
-const createNotice = async (noticeData, requesterId, requesterRole) => {
+const createNotice = async (
+  noticeData,
+  requesterId,
+  requesterRole,
+  requesterCoachingId
+) => {
   const { coachingId, batchId, title, content, expiresAt } = noticeData;
+
+  if (!requesterCoachingId || requesterCoachingId !== coachingId) {
+    throw new Error('You can only create notices in your selected coaching center');
+  }
+
+  if (batchId) {
+    const batch = await prisma.batch.findFirst({
+      where: { id: batchId, coachingId, isActive: true }
+    });
+    if (!batch) {
+      throw new Error('Selected batch is invalid for this coaching center');
+    }
+  }
 
   // Teachers can only post to their assigned batches; Owners can post to any/all
   if (requesterRole === ROLES.TEACHER) {
@@ -31,7 +49,7 @@ const createNotice = async (noticeData, requesterId, requesterRole) => {
   return notice;
 };
 
-const getNoticeById = async (noticeId) => {
+const getNoticeById = async (noticeId, requester) => {
   const notice = await prisma.notice.findUnique({
     where: { id: noticeId },
     include: {
@@ -41,6 +59,38 @@ const getNoticeById = async (noticeId) => {
     }
   });
   if (!notice) throw new Error('Notice not found');
+
+  if (!requester?.coachingId || notice.coachingId !== requester.coachingId) {
+    throw new Error('You are not authorised to view this notice');
+  }
+
+  if (requester.role === ROLES.STUDENT) {
+    const studentProfile = await prisma.studentProfile.findFirst({
+      where: { userId: requester.userId, coachingId: requester.coachingId }
+    });
+
+    if (!studentProfile) {
+      throw new Error('Student profile not found');
+    }
+
+    const canView = notice.batchId === null || notice.batchId === studentProfile.batchId;
+    if (!canView) {
+      throw new Error('You are not authorised to view this notice');
+    }
+  }
+
+  if (requester.role === ROLES.TEACHER) {
+    const assignedBatches = await prisma.batchTeacher.findMany({
+      where: { teacherId: requester.userId },
+      select: { batchId: true }
+    });
+    const assignedBatchIds = new Set(assignedBatches.map((item) => item.batchId));
+    const canView = notice.batchId === null || assignedBatchIds.has(notice.batchId);
+    if (!canView) {
+      throw new Error('You are not authorised to view this notice');
+    }
+  }
+
   return notice;
 };
 

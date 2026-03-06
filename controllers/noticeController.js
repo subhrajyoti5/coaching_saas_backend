@@ -6,7 +6,8 @@ const createNotice = async (req, res) => {
     const notice = await noticeService.createNotice(
       req.body,
       req.user.userId,
-      req.user.role
+      req.user.role,
+      req.user.coachingId
     );
 
     return res.status(HTTP_STATUS.CREATED).json({
@@ -24,11 +25,11 @@ const createNotice = async (req, res) => {
 const getNotice = async (req, res) => {
   try {
     const { noticeId } = req.params;
-    const notice = await noticeService.getNoticeById(noticeId);
+    const notice = await noticeService.getNoticeById(noticeId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({ notice });
   } catch (error) {
-    return res.status(HTTP_STATUS.NOT_FOUND).json({
-      error: 'Notice not found',
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch notice',
       message: error.message
     });
   }

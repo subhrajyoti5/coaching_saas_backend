@@ -94,8 +94,10 @@ const validateCreateFee = [
 
 const validateCreateNotice = [
   body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
+  body('batchId').optional({ nullable: true }).isUUID().withMessage('batchId must be a valid UUID'),
   body('title').trim().isLength({ min: 1 }).withMessage('Notice title is required'),
   body('content').trim().isLength({ min: 1 }).withMessage('Notice content is required'),
+  body('expiresAt').optional({ nullable: true }).isISO8601().withMessage('expiresAt must be a valid ISO date'),
   handleValidationErrors
 ];
 
