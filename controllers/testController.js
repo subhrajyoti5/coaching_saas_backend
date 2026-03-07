@@ -56,6 +56,19 @@ const getTestsByBatch = async (req, res) => {
   }
 };
 
+const getMyUpcomingTests = async (req, res) => {
+  try {
+    const { userId, coachingId } = req.user;
+    const tests = await testService.getMyUpcomingTests(userId, coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ tests });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to fetch upcoming tests',
+      message: error.message
+    });
+  }
+};
+
 const addQuestionToTest = async (req, res) => {
   try {
     const question = await testService.addQuestionToTest(req.body);
@@ -183,6 +196,7 @@ module.exports = {
   getTest,
   getTestsByCoaching,
   getTestsByBatch,
+  getMyUpcomingTests,
   addQuestionToTest,
   getQuestionsByTest,
   startAttempt,

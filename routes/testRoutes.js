@@ -5,6 +5,7 @@ const {
   getTest,
   getTestsByCoaching,
   getTestsByBatch,
+  getMyUpcomingTests,
   addQuestionToTest,
   getQuestionsByTest,
   startAttempt,
@@ -15,7 +16,7 @@ const {
   deleteTest
 } = require('../controllers/testController');
 const { authenticateToken } = require('../middleware/auth');
-const { ownerOnly, teacherOnly, teacherOrOwner, studentOrOwner } = require('../middleware/roles');
+const { ownerOnly, teacherOnly, teacherOrOwner, studentOrOwner, studentOnly } = require('../middleware/roles');
 const { validateCoachingAccess, validateStudentAccess } = require('../middleware/coachingIsolation');
 const { validateCreateTest, validateCreateQuestion } = require('../middleware/validation');
 
@@ -23,14 +24,14 @@ const { validateCreateTest, validateCreateQuestion } = require('../middleware/va
 // Create a new test (Owner and Teacher can access)
 router.post('/', authenticateToken, teacherOrOwner, validateCreateTest, createTest);
 
-// Get test by ID (Owner, Teacher, and Student can access)
-router.get('/:testId', authenticateToken, studentOrOwner, getTest);
-
 // Get all tests for a coaching center (Owner and Teacher can access)
 router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getTestsByCoaching);
 
 // Get all tests for a batch (Owner, Teacher, and Student can access)
 router.get('/batch/:batchId', authenticateToken, studentOrOwner, getTestsByBatch);
+
+// Get upcoming tests for the authenticated student
+router.get('/my-upcoming', authenticateToken, studentOnly, getMyUpcomingTests);
 
 // Add a question to a test (Owner and Teacher can access)
 router.post('/question', authenticateToken, teacherOrOwner, validateCreateQuestion, addQuestionToTest);
@@ -46,6 +47,9 @@ router.post('/submit', authenticateToken, studentOrOwner, submitTest);
 
 // Get my results (extracted from JWT)
 router.get('/my-results', authenticateToken, studentOrOwner, getMyResults);
+
+// Get test by ID (Owner, Teacher, and Student can access)
+router.get('/:testId', authenticateToken, studentOrOwner, getTest);
 
 // Get test results for a specific student (Owner, Teacher can access)
 router.get('/results/student/:studentId', authenticateToken, teacherOrOwner, validateStudentAccess, getStudentResults);

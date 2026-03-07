@@ -42,6 +42,30 @@ const getTestsByBatch = async (batchId) => {
   });
 };
 
+const getMyUpcomingTests = async (userId, coachingId) => {
+  const studentProfile = await prisma.studentProfile.findFirst({
+    where: { userId, coachingId, isActive: true }
+  });
+
+  if (!studentProfile || !studentProfile.batchId) {
+    return [];
+  }
+
+  return prisma.test.findMany({
+    where: {
+      coachingId,
+      batchId: studentProfile.batchId,
+      isActive: true,
+      startDate: { gte: new Date() }
+    },
+    include: {
+      coaching: { select: { id: true, name: true } },
+      batch: { select: { id: true, name: true } }
+    },
+    orderBy: { startDate: 'asc' }
+  });
+};
+
 const addQuestionToTest = async (questionData) => {
   const { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks } = questionData;
 
@@ -191,6 +215,7 @@ module.exports = {
   getTestById,
   getTestsByCoaching,
   getTestsByBatch,
+  getMyUpcomingTests,
   addQuestionToTest,
   getQuestionsByTest,
   startAttempt,
