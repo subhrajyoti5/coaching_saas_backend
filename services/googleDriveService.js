@@ -165,9 +165,41 @@ const getDriveClientForTeacher = async ({ userId, coachingId }) => {
   };
 };
 
+const getDeveloperDriveClient = async () => {
+  const refreshToken = process.env.DEVELOPER_DRIVE_REFRESH_TOKEN;
+  
+  if (!refreshToken) {
+    throw new Error('DEVELOPER_DRIVE_REFRESH_TOKEN is not configured in environment variables');
+  }
+
+  const oauth2Client = getOAuthClient();
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+  return google.drive({ version: 'v3', auth: oauth2Client });
+};
+
+const setDriveFilePermissions = async (drive, fileId) => {
+  try {
+    // Set permission to "Anyone with the link" with Viewer role (read-only)
+    await drive.permissions.create({
+      fileId,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone'
+      }
+    });
+    console.log(`[Drive Permissions] File ${fileId} set to "Anyone with link - Viewer"`);
+  } catch (error) {
+    console.error(`[Drive Permissions Error] Failed to set permissions for ${fileId}:`, error.message);
+    throw error;
+  }
+};
+
 module.exports = {
   createDriveConnectionAuthUrl,
   handleDriveOAuthCallback,
   getDriveConnectionStatus,
-  getDriveClientForTeacher
+  getDriveClientForTeacher,
+  getDeveloperDriveClient,
+  setDriveFilePermissions
 };

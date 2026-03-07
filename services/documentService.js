@@ -3,7 +3,7 @@ const { Readable } = require('stream');
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
-const { getDriveClientForTeacher } = require('./googleDriveService');
+const { getDriveClientForTeacher, getDeveloperDriveClient, setDriveFilePermissions } = require('./googleDriveService');
 
 const parseSharedBoolean = (value) => {
   if (typeof value === 'boolean') return value;
@@ -29,9 +29,10 @@ const assertTeacherAssignedToBatch = async ({ userId, batchId, coachingId }) => 
 };
 
 const uploadToDrive = async ({ userId, coachingId, file }) => {
-  const { drive } = await getDriveClientForTeacher({ userId, coachingId });
+  // Use developer's centralized Google Drive account
+  const drive = await getDeveloperDriveClient();
 
-  // Upload file to Drive
+  // Upload file to Developer's Drive
   const created = await drive.files.create({
     requestBody: {
       name: file.originalname,
@@ -47,7 +48,10 @@ const uploadToDrive = async ({ userId, coachingId, file }) => {
   });
 
   const fileId = created.data.id;
-  console.log(`[Drive Upload] File uploaded: fileId=${fileId}, name=${file.originalname}, size=${created.data.size}`);
+  console.log(`[Drive Upload] File uploaded to developer drive: fileId=${fileId}, name=${file.originalname}, size=${created.data.size}`);
+
+  // Set file permission to "Anyone with the link" (Viewer only - read-only access)
+  await setDriveFilePermissions(drive, fileId);
 
   return created.data;
 };
@@ -78,7 +82,7 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
       mimeType: driveMeta.mimeType || file.mimetype,
       driveFileId: driveMeta.id,
       driveWebViewLink: driveMeta.webViewLink || null,
-      driveWebContentLink: driveMeta.webContentLink || null,
+      driveWebContentLink: null,  // Always null for view-only access
       thumbnailLink: driveMeta.thumbnailLink || null,
       isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
     },

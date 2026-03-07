@@ -1,15 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const {
-  getDriveConnectUrl,
-  handleDriveCallback,
-  getDriveStatus
-} = require('../controllers/driveController');
-const { authenticateToken } = require('../middleware/auth');
-const { teacherOnly } = require('../middleware/roles');
+const { deprecatedEndpoint } = require('../controllers/driveController');
 
-router.get('/connect/start', authenticateToken, teacherOnly, getDriveConnectUrl);
-router.get('/connect/status', authenticateToken, teacherOnly, getDriveStatus);
-router.get('/connect/callback', handleDriveCallback);
+/**
+ * DEPRECATED: Teacher Drive endpoints removed
+ * All documents are now uploaded to centralized Developer Drive
+ * See DEVELOPER_DRIVE_SETUP.md for details
+ */
+
+router.get('/connect/start', deprecatedEndpoint);
+router.get('/connect/status', deprecatedEndpoint);
+router.get('/connect/callback', deprecatedEndpoint);
 
 module.exports = router;
