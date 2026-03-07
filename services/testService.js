@@ -44,7 +44,7 @@ const getTestsByBatch = async (batchId) => {
 
 const getMyUpcomingTests = async (userId, coachingId) => {
   const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId, isActive: true }
+    where: { userId, coachingId }
   });
 
   if (!studentProfile || !studentProfile.batchId) {
