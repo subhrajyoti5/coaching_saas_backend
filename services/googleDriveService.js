@@ -49,7 +49,9 @@ const signStateToken = (payload) => {
     throw new Error('DRIVE_STATE_SECRET or JWT_SECRET is required');
   }
 
-  return jwt.sign(payload, secret, { expiresIn: '10m' });
+  const stateTtl = process.env.DRIVE_STATE_TOKEN_TTL || '30m';
+
+  return jwt.sign(payload, secret, { expiresIn: stateTtl });
 };
 
 const verifyStateToken = (token) => {
@@ -57,7 +59,9 @@ const verifyStateToken = (token) => {
   if (!secret) {
     throw new Error('DRIVE_STATE_SECRET or JWT_SECRET is required');
   }
-  return jwt.verify(token, secret);
+
+  const clockToleranceSeconds = Number(process.env.DRIVE_STATE_CLOCK_TOLERANCE_SEC || 120);
+  return jwt.verify(token, secret, { clockTolerance: clockToleranceSeconds });
 };
 
 const createDriveConnectionAuthUrl = async ({ userId, coachingId }) => {
