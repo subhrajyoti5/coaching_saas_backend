@@ -117,6 +117,21 @@ const validateUpdateAttendance = [
   handleValidationErrors
 ];
 
+const validateUploadTeacherDocument = [
+  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('title').trim().isLength({ min: 1, max: 120 }).withMessage('Title is required and must be under 120 characters'),
+  body('description').optional({ nullable: true }).trim().isLength({ max: 1000 }).withMessage('Description must be under 1000 characters'),
+  body('isSharedWithStudents').optional().isBoolean().withMessage('isSharedWithStudents must be true or false'),
+  handleValidationErrors
+];
+
+const validateUpdateTeacherDocument = [
+  body('title').optional().trim().isLength({ min: 1, max: 120 }).withMessage('Title must be under 120 characters'),
+  body('description').optional({ nullable: true }).trim().isLength({ max: 1000 }).withMessage('Description must be under 1000 characters'),
+  body('isSharedWithStudents').optional().isBoolean().withMessage('isSharedWithStudents must be true or false'),
+  handleValidationErrors
+];
+
 module.exports = {
   validateUserRegistration,
   validateUserLogin,
@@ -131,5 +146,7 @@ module.exports = {
   validateCreateFee,
   validateCreateNotice,
   validateMarkBatchAttendance,
-  validateUpdateAttendance
+  validateUpdateAttendance,
+  validateUploadTeacherDocument,
+  validateUpdateTeacherDocument
 };

@@ -59,6 +59,8 @@ model User {
   auditLogs      AuditLog[]
   studentBatches StudentBatch[]
   attendanceMarked Attendance[]   @relation("UserToAttendance")
+  googleDriveConnections GoogleDriveConnection[]
+  uploadedDocuments TeacherDocument[] @relation("UserToTeacherDocument")
 
   @@index([email])
   @@index([role])
@@ -98,6 +100,8 @@ model CoachingCentre {
   notices         Notice[]
   studentBatches  StudentBatch[]
   attendanceRecords Attendance[]
+  teacherDocuments TeacherDocument[]
+  googleDriveConnections GoogleDriveConnection[]
 
   @@index([ownerId])
   @@index([isActive])
@@ -139,6 +143,7 @@ model Batch {
   notices        Notice[]
   studentBatches StudentBatch[]
   attendanceRecords Attendance[]
+  teacherDocuments TeacherDocument[]
 
   @@index([coachingId, isActive])
   @@index([isActive])
@@ -393,4 +398,55 @@ model StudentBatch {
   @@index([batchId])
   @@index([coachingId, isActive])
   @@map("student_batches")
+}
+
+model GoogleDriveConnection {
+  id                    String   @id @default(uuid())
+  userId                String
+  coachingId            String
+  googleAccountEmail    String
+  encryptedRefreshToken String
+  scope                 String?
+  connectedAt           DateTime @default(now())
+  revokedAt             DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, coachingId])
+  @@index([coachingId])
+  @@index([userId])
+  @@map("google_drive_connections")
+}
+
+model TeacherDocument {
+  id                 String    @id @default(uuid())
+  coachingId         String
+  batchId            String
+  uploadedBy         String
+  title              String
+  description        String?
+  fileName           String
+  fileSize           Int
+  mimeType           String
+  driveFileId        String    @unique
+  driveWebViewLink   String?
+  driveWebContentLink String?
+  thumbnailLink      String?
+  isSharedWithStudents Boolean @default(false)
+  isActive           Boolean   @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  batch    Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  uploader User           @relation("UserToTeacherDocument", fields: [uploadedBy], references: [id], onDelete: Cascade)
+
+  @@index([uploadedBy, isActive])
+  @@index([batchId, isSharedWithStudents, isActive])
+  @@index([coachingId, createdAt])
+  @@map("teacher_documents")
 }
