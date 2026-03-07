@@ -4,6 +4,11 @@ const documentService = require('../services/documentService');
 
 const uploadDocument = async (req, res) => {
   try {
+    // DEBUG: Log request body
+    console.log('[Controller] uploadDocument REQUEST BODY:', JSON.stringify(req.body, null, 2));
+    console.log('[Controller] uploadDocument FILE:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'NO FILE');
+    console.log('[Controller] uploadDocument USER:', { userId: req.user.userId, role: req.user.role, coachingId: req.user.coachingId });
+    
     const document = await documentService.uploadTeacherDocument({
       userId: req.user.userId,
       role: req.user.role,

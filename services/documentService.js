@@ -65,10 +65,19 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
     throw new Error('File is required');
   }
 
+  // DEBUG: Log payload and isSharedWithStudents
+  console.log('[Service] uploadTeacherDocument PARSING:');
+  console.log('  payload:', JSON.stringify(payload, null, 2));
+  console.log('  payload.isSharedWithStudents:', payload.isSharedWithStudents, '(type:', typeof payload.isSharedWithStudents, ')');
+
   const { batchId, title, description } = payload;
   await assertTeacherAssignedToBatch({ userId, batchId, coachingId });
 
   const driveMeta = await uploadToDrive({ userId, coachingId, file });
+
+  const isSharedValue = parseSharedBoolean(payload.isSharedWithStudents);
+  console.log('[Service] uploadTeacherDocument AFTER PARSE:');
+  console.log('  isSharedWithStudents:', isSharedValue, '(type:', typeof isSharedValue, ')');
 
   const document = await prisma.teacherDocument.create({
     data: {
@@ -84,7 +93,7 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
       driveWebViewLink: driveMeta.webViewLink || null,
       driveWebContentLink: null,  // Always null for view-only access
       thumbnailLink: driveMeta.thumbnailLink || null,
-      isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
+      isSharedWithStudents: isSharedValue
     },
     include: {
       batch: { select: { id: true, name: true } }
@@ -187,15 +196,31 @@ const deleteTeacherDocument = async ({ userId, coachingId, documentId }) => {
 };
 
 const getStudentDocumentFeed = async ({ userId, coachingId }) => {
+  // DEBUG: Log student fetch
+  console.log('[Service] getStudentDocumentFeed:');
+  console.log('  userId:', userId);
+  console.log('  coachingId:', coachingId);
+
   const studentProfile = await prisma.studentProfile.findFirst({
     where: { userId, coachingId }
   });
 
+  console.log('[Service] Student profile found:', studentProfile ? `YES (batchId: ${studentProfile.batchId})` : 'NO');
+
   if (!studentProfile || !studentProfile.batchId) {
+    console.log('[Service] No student profile or batch - returning empty');
     return [];
   }
 
-  return prisma.teacherDocument.findMany({
+  // DEBUG: Log query
+  console.log('[Service] Querying documents WHERE:');
+  console.log('  coachingId:', coachingId);
+  console.log('  batchId:', studentProfile.batchId);
+  console.log('  isSharedWithStudents: true');
+  console.log('  isActive: true');
+  console.log('  deletedAt: null');
+
+  const documents = await prisma.teacherDocument.findMany({
     where: {
       coachingId,
       batchId: studentProfile.batchId,
@@ -215,6 +240,15 @@ const getStudentDocumentFeed = async ({ userId, coachingId }) => {
       batch: { select: { id: true, name: true } }
     }
   });
+
+  console.log('[Service] Documents found:', documents.length);
+  if (documents.length > 0) {
+    console.log('[Service] Document titles:', documents.map(d => ({ id: d.id, title: d.title })));
+  } else {
+    console.log('[Service] No documents found in batch:', studentProfile.batchId);
+  }
+
+  return documents;
 };
 
 const createPreviewUrlToken = ({ userId, coachingId, role, documentId }) => {
