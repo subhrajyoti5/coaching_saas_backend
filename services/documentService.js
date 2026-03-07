@@ -43,6 +43,22 @@ const uploadToDrive = async ({ userId, coachingId, file }) => {
     fields: 'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink'
   });
 
+  const fileId = created.data.id;
+
+  // Grant permission to the owner role to ensure API access
+  try {
+    await drive.permissions.create({
+      fileId,
+      requestBody: {
+        role: 'owner',
+        type: 'user'
+      }
+    });
+  } catch (permError) {
+    console.warn(`[Drive] Permission grant failed for ${fileId}:`, permError.message);
+    // Non-blocking - file can still be accessed by the uploading user
+  }
+
   return created.data;
 };
 
@@ -281,21 +297,38 @@ const getPreviewStreamByToken = async (token) => {
   const { userId, coachingId, role, documentId } = decoded;
 
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-  const { drive } = await getDriveClientForTeacher({ userId: doc.uploadedBy, coachingId });
+  
+  try {
+    const { drive } = await getDriveClientForTeacher({ userId: doc.uploadedBy, coachingId });
 
-  const response = await drive.files.get(
-    {
-      fileId: doc.driveFileId,
-      alt: 'media'
-    },
-    { responseType: 'stream' }
-  );
+    console.log(`[Drive Preview] Fetching fileId=${doc.driveFileId} for student preview`);
+    
+    const response = await drive.files.get(
+      {
+        fileId: doc.driveFileId,
+        alt: 'media'
+      },
+      { responseType: 'stream' }
+    );
 
-  return {
-    stream: response.data,
-    mimeType: doc.mimeType,
-    fileName: doc.fileName
-  };
+    return {
+      stream: response.data,
+      mimeType: doc.mimeType,
+      fileName: doc.fileName
+    };
+  } catch (error) {
+    console.error(`[Drive Preview Error] FileId=${doc.driveFileId}, Role=${role}, Error:`, error.message);
+    
+    if (error.message.includes('404') || error.message.includes('not found')) {
+      throw new Error(`Document not found in Google Drive. FileId: ${doc.driveFileId}`);
+    }
+    
+    if (error.message.includes('permission') || error.message.includes('Forbidden')) {
+      throw new Error('Teacher does not have permission to access this file. Please check Drive connection.');
+    }
+    
+    throw error;
+  }
 };
 
 module.exports = {
