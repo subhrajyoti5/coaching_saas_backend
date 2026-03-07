@@ -31,33 +31,23 @@ const assertTeacherAssignedToBatch = async ({ userId, batchId, coachingId }) => 
 const uploadToDrive = async ({ userId, coachingId, file }) => {
   const { drive } = await getDriveClientForTeacher({ userId, coachingId });
 
+  // Upload file to Drive
   const created = await drive.files.create({
     requestBody: {
       name: file.originalname,
-      mimeType: file.mimetype
+      mimeType: file.mimetype,
+      // Store metadata to track which teacher/coaching uploaded it
+      description: `Uploaded to Coaching SaaS by ${userId}`
     },
     media: {
       mimeType: file.mimetype,
       body: Readable.from(file.buffer)
     },
-    fields: 'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink'
+    fields: 'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink,owners'
   });
 
   const fileId = created.data.id;
-
-  // Grant permission to the owner role to ensure API access
-  try {
-    await drive.permissions.create({
-      fileId,
-      requestBody: {
-        role: 'owner',
-        type: 'user'
-      }
-    });
-  } catch (permError) {
-    console.warn(`[Drive] Permission grant failed for ${fileId}:`, permError.message);
-    // Non-blocking - file can still be accessed by the uploading user
-  }
+  console.log(`[Drive Upload] File uploaded: fileId=${fileId}, name=${file.originalname}, size=${created.data.size}`);
 
   return created.data;
 };
@@ -299,9 +289,22 @@ const getPreviewStreamByToken = async (token) => {
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
   
   try {
+    // Verify teacher's Drive connection is still active
+    const driveConnection = await prisma.googleDriveConnection.findFirst({
+      where: {
+        userId: doc.uploadedBy,
+        coachingId,
+        revokedAt: null
+      }
+    });
+
+    if (!driveConnection) {
+      throw new Error('Teacher has not connected Google Drive or connection has been revoked');
+    }
+
     const { drive } = await getDriveClientForTeacher({ userId: doc.uploadedBy, coachingId });
 
-    console.log(`[Drive Preview] Fetching fileId=${doc.driveFileId} for student preview`);
+    console.log(`[Preview] Loading fileId=${doc.driveFileId} for student`);
     
     const response = await drive.files.get(
       {
@@ -311,20 +314,21 @@ const getPreviewStreamByToken = async (token) => {
       { responseType: 'stream' }
     );
 
+    console.log(`[Preview] Stream opened for fileId=${doc.driveFileId}`);
     return {
       stream: response.data,
       mimeType: doc.mimeType,
       fileName: doc.fileName
     };
   } catch (error) {
-    console.error(`[Drive Preview Error] FileId=${doc.driveFileId}, Role=${role}, Error:`, error.message);
+    console.error(`[Preview Error] fileId=${doc.driveFileId}, teacher=${doc.uploadedBy}, error:`, error.message);
     
     if (error.message.includes('404') || error.message.includes('not found')) {
-      throw new Error(`Document not found in Google Drive. FileId: ${doc.driveFileId}`);
+      throw new Error(`File not found in Google Drive (FileId: ${doc.driveFileId}). Teacher may have deleted it.`);
     }
     
-    if (error.message.includes('permission') || error.message.includes('Forbidden')) {
-      throw new Error('Teacher does not have permission to access this file. Please check Drive connection.');
+    if (error.message.includes('permission') || error.message.includes('Forbidden') || error.message.includes('403')) {
+      throw new Error('Access denied. Teacher needs to reconnect Google Drive.');
     }
     
     throw error;
