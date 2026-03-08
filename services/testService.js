@@ -11,8 +11,8 @@ const createTest = async (testData, requesterId) => {
       coachingId, 
       batchId: Array.isArray(batchIds) && batchIds.length > 0 ? batchIds[0] : null,
       duration, 
-      startDate, 
-      endDate, 
+      startDate: new Date(startDate), 
+      endDate: new Date(endDate), 
       maxScore 
     }
   });
