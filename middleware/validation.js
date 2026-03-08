@@ -70,7 +70,8 @@ const validateAssignStudent = [
 const validateCreateTest = [
   body('title').trim().isLength({ min: 1 }).withMessage('Test title is required'),
   body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
-  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('batchIds').isArray({ min: 1 }).withMessage('At least one batch must be selected'),
+  body('batchIds.*').isUUID().withMessage('Each batchId must be a valid UUID'),
   body('duration').isInt({ min: 1 }).withMessage('Duration must be a positive integer'),
   body('startDate').isISO8601().withMessage('Start date must be valid'),
   body('endDate').isISO8601().withMessage('End date must be valid'),
@@ -81,7 +82,13 @@ const validateCreateTest = [
 const validateCreateQuestion = [
   body('testId').isUUID().withMessage('Valid test ID is required'),
   body('questionText').trim().isLength({ min: 1 }).withMessage('Question text is required'),
+  body('optionA').trim().isLength({ min: 1 }).withMessage('Option A is required'),
+  body('optionB').trim().isLength({ min: 1 }).withMessage('Option B is required'),
+  body('optionC').optional().trim(),
+  body('optionD').optional().trim(),
   body('correctAnswer').isIn(['A', 'B', 'C', 'D']).withMessage('Correct answer must be A, B, C, or D'),
+  body('marks').optional().isFloat({ min: 0 }).withMessage('Marks must be non-negative'),
+  body('durationSeconds').optional().isInt({ min: 1 }).withMessage('Duration seconds must be a positive integer'),
   handleValidationErrors
 ];
 

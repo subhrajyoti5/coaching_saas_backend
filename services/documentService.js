@@ -195,6 +195,34 @@ const deleteTeacherDocument = async ({ userId, coachingId, documentId }) => {
   return { message: 'Document deleted successfully' };
 };
 
+const resolveStudentBatchId = async ({ userId, coachingId, studentProfile }) => {
+  // First try the profile's batchId
+  if (studentProfile && studentProfile.batchId) {
+    console.log('[Service] Using batchId from StudentProfile:', studentProfile.batchId);
+    return studentProfile.batchId;
+  }
+
+  // Fallback: query StudentBatch for active enrollment
+  console.log('[Service] StudentProfile.batchId is null, querying StudentBatch table...');
+  const studentBatch = await prisma.studentBatch.findFirst({
+    where: {
+      studentId: userId,
+      coachingId,
+      isActive: true,
+      deletedAt: null
+    },
+    orderBy: { enrollmentDate: 'desc' }
+  });
+
+  if (studentBatch) {
+    console.log('[Service] Found active StudentBatch:', studentBatch.batchId);
+    return studentBatch.batchId;
+  }
+
+  console.log('[Service] No active StudentBatch found for student');
+  return null;
+};
+
 const getStudentDocumentFeed = async ({ userId, coachingId }) => {
   // DEBUG: Log student fetch
   console.log('[Service] getStudentDocumentFeed:');
@@ -207,15 +235,23 @@ const getStudentDocumentFeed = async ({ userId, coachingId }) => {
 
   console.log('[Service] Student profile found:', studentProfile ? `YES (batchId: ${studentProfile.batchId})` : 'NO');
 
-  if (!studentProfile || !studentProfile.batchId) {
-    console.log('[Service] No student profile or batch - returning empty');
+  if (!studentProfile) {
+    console.log('[Service] No student profile - returning empty');
+    return [];
+  }
+
+  // Resolve batchId with fallback to StudentBatch table
+  const batchId = await resolveStudentBatchId({ userId, coachingId, studentProfile });
+
+  if (!batchId) {
+    console.log('[Service] No batch found (profile or StudentBatch) - returning empty');
     return [];
   }
 
   // DEBUG: Log query
   console.log('[Service] Querying documents WHERE:');
   console.log('  coachingId:', coachingId);
-  console.log('  batchId:', studentProfile.batchId);
+  console.log('  batchId:', batchId);
   console.log('  isSharedWithStudents: true');
   console.log('  isActive: true');
   console.log('  deletedAt: null');
@@ -223,7 +259,7 @@ const getStudentDocumentFeed = async ({ userId, coachingId }) => {
   const documents = await prisma.teacherDocument.findMany({
     where: {
       coachingId,
-      batchId: studentProfile.batchId,
+      batchId,
       isSharedWithStudents: true,
       isActive: true,
       deletedAt: null
@@ -245,7 +281,7 @@ const getStudentDocumentFeed = async ({ userId, coachingId }) => {
   if (documents.length > 0) {
     console.log('[Service] Document titles:', documents.map(d => ({ id: d.id, title: d.title })));
   } else {
-    console.log('[Service] No documents found in batch:', studentProfile.batchId);
+    console.log('[Service] No documents found in batch:', batchId);
   }
 
   return documents;

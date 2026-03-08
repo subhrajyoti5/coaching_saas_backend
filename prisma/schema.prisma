@@ -144,6 +144,7 @@ model Batch {
   studentBatches StudentBatch[]
   attendanceRecords Attendance[]
   teacherDocuments TeacherDocument[]
+  testBatches    TestBatch[]  // Many-to-many with tests
 
   @@index([coachingId, isActive])
   @@index([isActive])
@@ -236,7 +237,7 @@ model Test {
   id        String    @id @default(uuid())
   title     String
   coachingId String
-  batchId   String
+  batchId   String?   // Made optional - using TestBatch join table instead
   duration  Int
   isActive  Boolean   @default(true)
   deletedAt DateTime?
@@ -247,15 +248,31 @@ model Test {
   updatedAt DateTime  @updatedAt
 
   coaching  CoachingCentre @relation(fields: [coachingId], references: [id])
-  batch     Batch          @relation(fields: [batchId], references: [id])
+  batch     Batch?         @relation(fields: [batchId], references: [id])
   questions Question[]
   results   Result[]
   attempts  TestAttempt[]
+  testBatches TestBatch[]  // Many-to-many with batches
 
   @@index([coachingId, isActive])
   @@index([batchId])
   @@index([startDate, endDate])
   @@map("tests")
+}
+
+model TestBatch {
+  id         String   @id @default(uuid())
+  testId     String
+  batchId    String
+  createdAt  DateTime @default(now())
+
+  test  Test  @relation(fields: [testId], references: [id], onDelete: Cascade)
+  batch Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, batchId])
+  @@index([testId])
+  @@index([batchId])
+  @@map("test_batches")
 }
 
 model TestAttempt {
@@ -277,16 +294,17 @@ model TestAttempt {
 }
 
 model Question {
-  id            String   @id @default(uuid())
-  testId        String
-  questionText  String
-  optionA       String
-  optionB       String
-  optionC       String
-  optionD       String
-  correctAnswer String
-  marks         Float    @default(1)
-  createdAt     DateTime @default(now())
+  id              String   @id @default(uuid())
+  testId          String
+  questionText    String
+  optionA         String
+  optionB         String
+  optionC         String
+  optionD         String
+  correctAnswer   String
+  marks           Float    @default(1)
+  durationSeconds Int?     // Per-question timer in seconds
+  createdAt       DateTime @default(now())
 
   test Test @relation(fields: [testId], references: [id])
 

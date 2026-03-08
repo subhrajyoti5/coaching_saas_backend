@@ -2,10 +2,31 @@ const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
 
 const createTest = async (testData, requesterId) => {
-  const { title, coachingId, batchId, duration, startDate, endDate, maxScore } = testData;
+  const { title, coachingId, batchIds, duration, startDate, endDate, maxScore } = testData;
+  
+  // Create test with optional legacy batchId for backwards compatibility
   const test = await prisma.test.create({
-    data: { title, coachingId, batchId, duration, startDate, endDate, maxScore }
+    data: { 
+      title, 
+      coachingId, 
+      batchId: Array.isArray(batchIds) && batchIds.length > 0 ? batchIds[0] : null,
+      duration, 
+      startDate, 
+      endDate, 
+      maxScore 
+    }
   });
+
+  // Create TestBatch entries for multi-batch support
+  if (Array.isArray(batchIds) && batchIds.length > 0) {
+    await prisma.testBatch.createMany({
+      data: batchIds.map(batchId => ({
+        testId: test.id,
+        batchId
+      }))
+    });
+  }
+
   await audit({ userId: requesterId, action: 'CREATE_TEST', entityType: 'TEST', entityId: test.id });
   return test;
 };
@@ -15,7 +36,12 @@ const getTestById = async (testId) => {
     where: { id: testId, isActive: true },
     include: {
       coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } }
+      batch: { select: { id: true, name: true } },
+      testBatches: {
+        include: {
+          batch: { select: { id: true, name: true } }
+        }
+      }
     }
   });
   if (!test) throw new Error('Test not found');
@@ -47,33 +73,74 @@ const getMyUpcomingTests = async (userId, coachingId) => {
     where: { userId, coachingId }
   });
 
-  if (!studentProfile || !studentProfile.batchId) {
+  if (!studentProfile) {
     return [];
   }
 
+  // Resolve student's batch (with fallback to StudentBatch)
+  let studentBatchId = studentProfile.batchId;
+  if (!studentBatchId) {
+    const studentBatch = await prisma.studentBatch.findFirst({
+      where: {
+        studentId: userId,
+        coachingId,
+        isActive: true,
+        deletedAt: null
+      },
+      orderBy: { enrollmentDate: 'desc' }
+    });
+    studentBatchId = studentBatch?.batchId;
+  }
+
+  if (!studentBatchId) {
+    return [];
+  }
+
+  // Find tests where student's batch is in TestBatch table
+  const testBatches = await prisma.testBatch.findMany({
+    where: { batchId: studentBatchId },
+    select: { testId: true }
+  });
+
+  const testIds = testBatches.map(tb => tb.testId);
+
   return prisma.test.findMany({
     where: {
+      id: { in: testIds },
       coachingId,
-      batchId: studentProfile.batchId,
       isActive: true,
       startDate: { gte: new Date() }
     },
     include: {
       coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } }
+      testBatches: {
+        include: {
+          batch: { select: { id: true, name: true } }
+        }
+      }
     },
     orderBy: { startDate: 'asc' }
   });
 };
 
 const addQuestionToTest = async (questionData) => {
-  const { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks } = questionData;
+  const { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks, durationSeconds } = questionData;
 
   const test = await prisma.test.findFirst({ where: { id: testId, isActive: true } });
   if (!test) throw new Error('Test not found');
 
   return prisma.question.create({
-    data: { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks: marks || 1 }
+    data: { 
+      testId, 
+      questionText, 
+      optionA, 
+      optionB, 
+      optionC, 
+      optionD, 
+      correctAnswer, 
+      marks: marks || 1,
+      durationSeconds: durationSeconds || null
+    }
   });
 };
 
@@ -100,6 +167,44 @@ const startAttempt = async (testId, studentProfileId) => {
   if (now < test.startDate) throw new Error('Test has not started yet');
   if (now > test.endDate) throw new Error('Test window has closed');
 
+  // Verify student eligibility using TestBatch
+  const studentProfile = await prisma.studentProfile.findFirst({
+    where: { id: studentProfileId },
+    include: { user: true }
+  });
+  if (!studentProfile) throw new Error('Student profile not found');
+
+  // Resolve student's batch
+  let studentBatchId = studentProfile.batchId;
+  if (!studentBatchId) {
+    const studentBatch = await prisma.studentBatch.findFirst({
+      where: {
+        studentId: studentProfile.userId,
+        coachingId: test.coachingId,
+        isActive: true,
+        deletedAt: null
+      },
+      orderBy: { enrollmentDate: 'desc' }
+    });
+    studentBatchId = studentBatch?.batchId;
+  }
+
+  if (!studentBatchId) {
+    throw new Error('Student is not enrolled in any batch');
+  }
+
+  // Check if student's batch is assigned to this test
+  const testBatch = await prisma.testBatch.findFirst({
+    where: {
+      testId,
+      batchId: studentBatchId
+    }
+  });
+
+  if (!testBatch) {
+    throw new Error('You are not authorized to take this test. Your batch is not assigned to this test.');
+  }
+
   return prisma.testAttempt.create({
     data: { testId, studentId: studentProfileId, status: 'STARTED' }
   });
@@ -118,7 +223,37 @@ const submitTest = async ({ testId, answers }, userId) => {
     where: { userId, coachingId: test.coachingId }
   });
   if (!studentProfile) throw new Error('Student profile not found for this coaching center');
-  if (studentProfile.batchId !== test.batchId) throw new Error('Student is not enrolled in the batch for this test');
+
+  // Resolve student's batch (with fallback)
+  let studentBatchId = studentProfile.batchId;
+  if (!studentBatchId) {
+    const studentBatch = await prisma.studentBatch.findFirst({
+      where: {
+        studentId: userId,
+        coachingId: test.coachingId,
+        isActive: true,
+        deletedAt: null
+      },
+      orderBy: { enrollmentDate: 'desc' }
+    });
+    studentBatchId = studentBatch?.batchId;
+  }
+
+  if (!studentBatchId) {
+    throw new Error('Student is not enrolled in any batch');
+  }
+
+  // Verify student's batch is assigned to this test
+  const testBatch = await prisma.testBatch.findFirst({
+    where: {
+      testId,
+      batchId: studentBatchId
+    }
+  });
+
+  if (!testBatch) {
+    throw new Error('You are not authorized to submit this test. Your batch is not assigned to this test.');
+  }
 
   const studentProfileId = studentProfile.id;
 
