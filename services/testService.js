@@ -13,7 +13,8 @@ const createTest = async (testData, requesterId) => {
       duration, 
       startDate: new Date(startDate), 
       endDate: new Date(endDate), 
-      maxScore 
+      maxScore,
+      isPublished: false
     }
   });
 
@@ -109,6 +110,7 @@ const getMyUpcomingTests = async (userId, coachingId) => {
       id: { in: testIds },
       coachingId,
       isActive: true,
+      isPublished: true,
       startDate: { gte: new Date() }
     },
     include: {
@@ -345,6 +347,15 @@ const deactivateTest = async (testId, requesterId) => {
   return test;
 };
 
+const publishTest = async (testId, requesterId) => {
+  const test = await prisma.test.update({
+    where: { id: testId },
+    data: { isPublished: true }
+  });
+  await audit({ userId: requesterId, action: 'PUBLISH_TEST', entityType: 'TEST', entityId: testId });
+  return test;
+};
+
 module.exports = {
   createTest,
   getTestById,
@@ -358,5 +369,6 @@ module.exports = {
   getMyResults,
   getStudentResults,
   getTestResults,
-  deactivateTest
+  deactivateTest,
+  publishTest
 };

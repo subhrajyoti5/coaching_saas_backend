@@ -240,6 +240,7 @@ model Test {
   batchId   String?   // Made optional - using TestBatch join table instead
   duration  Int
   isActive  Boolean   @default(true)
+  isPublished Boolean @default(false)
   deletedAt DateTime?
   startDate DateTime
   endDate   DateTime

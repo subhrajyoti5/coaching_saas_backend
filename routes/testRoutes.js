@@ -13,7 +13,8 @@ const {
   getMyResults,
   getStudentResults,
   getTestResults,
-  deleteTest
+  deleteTest,
+  publishTest
 } = require('../controllers/testController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOnly, teacherOrOwner, studentOrOwner, studentOnly } = require('../middleware/roles');
@@ -56,6 +57,9 @@ router.get('/results/student/:studentId', authenticateToken, teacherOrOwner, val
 
 // Get test results for a specific test (Owner and Teacher can access)
 router.get('/:testId/results', authenticateToken, teacherOrOwner, getTestResults);
+
+// Publish a test (Owner and Teacher can access)
+router.patch('/:testId/publish', authenticateToken, teacherOrOwner, publishTest);
 
 // Soft delete a test
 router.delete('/:testId', authenticateToken, teacherOrOwner, deleteTest);

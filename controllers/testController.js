@@ -191,6 +191,25 @@ const deleteTest = async (req, res) => {
   }
 };
 
+const publishTest = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const userId = req.user.id;
+
+    const test = await testService.publishTest(testId, userId);
+
+    return res.status(HTTP_STATUS.OK).json({
+      message: 'Test published successfully',
+      test
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to publish test',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createTest,
   getTest,
@@ -204,5 +223,6 @@ module.exports = {
   getMyResults,
   getStudentResults,
   getTestResults,
-  deleteTest
+  deleteTest,
+  publishTest
 };
