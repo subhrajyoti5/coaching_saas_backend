@@ -54,12 +54,7 @@ const getTestsByCoaching = async (coachingId) => {
     where: { coachingId, isActive: true },
     include: {
       coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      testBatches: {
-        include: {
-          batch: { select: { id: true, name: true } }
-        }
-      }
+      batch: { select: { id: true, name: true } }
     }
   });
 };
@@ -69,12 +64,7 @@ const getTestsByBatch = async (batchId) => {
     where: { batchId, isActive: true },
     include: {
       coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      testBatches: {
-        include: {
-          batch: { select: { id: true, name: true } }
-        }
-      }
+      batch: { select: { id: true, name: true } }
     }
   });
 };
