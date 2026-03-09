@@ -97,29 +97,28 @@ const getMyUpcomingTests = async (userId, coachingId) => {
     return [];
   }
 
-  // Find tests where student's batch is in TestBatch table
+  // Find tests where student's batch is in TestBatch table (new multi-batch system)
   const testBatches = await prisma.testBatch.findMany({
     where: { batchId: studentBatchId },
     select: { testId: true }
   });
 
-  const testIds = testBatches.map(tb => tb.testId);
+  const testIdsFromTestBatch = testBatches.map(tb => tb.testId);
 
+  // OR: support both new TestBatch join table AND legacy batchId field on test
   return prisma.test.findMany({
     where: {
-      id: { in: testIds },
+      OR: [
+        { id: { in: testIdsFromTestBatch } },
+        { batchId: studentBatchId }
+      ],
       coachingId,
       isActive: true,
       isPublished: true,
-      startDate: { gte: new Date() }
+      endDate: { gte: new Date() }  // show ongoing tests too, not just future ones
     },
     include: {
       coaching: { select: { id: true, name: true } },
-      testBatches: {
-        include: {
-          batch: { select: { id: true, name: true } }
-        }
-      }
     },
     orderBy: { startDate: 'asc' }
   });
