@@ -13,6 +13,8 @@ const {
   getMyResults,
   getStudentResults,
   getTestResults,
+  getTeacherLeaderboard,
+  getStudentLeaderboard,
   deleteTest,
   publishTest
 } = require('../controllers/testController');
@@ -40,11 +42,11 @@ router.post('/question', authenticateToken, teacherOrOwner, validateCreateQuesti
 // Get all questions for a test (Owner, Teacher, and Student can access)
 router.get('/:testId/questions', authenticateToken, studentOrOwner, getQuestionsByTest);
 
-// Start a test attempt (Locked against multiple active attempts)
-router.post('/start-attempt', authenticateToken, studentOrOwner, startAttempt);
+// Start a test attempt (student-only)
+router.post('/start-attempt', authenticateToken, studentOnly, startAttempt);
 
-// Submit test answers and calculate result (Locked against resubmission)
-router.post('/submit', authenticateToken, studentOrOwner, submitTest);
+// Submit test answers and calculate result (student-only)
+router.post('/submit', authenticateToken, studentOnly, submitTest);
 
 // Get my results (extracted from JWT)
 router.get('/my-results', authenticateToken, studentOrOwner, getMyResults);
@@ -57,6 +59,12 @@ router.get('/results/student/:studentId', authenticateToken, teacherOrOwner, val
 
 // Get test results for a specific test (Owner and Teacher can access)
 router.get('/:testId/results', authenticateToken, teacherOrOwner, getTestResults);
+
+// Teacher/Owner leaderboard view: full ranking list
+router.get('/:testId/leaderboard', authenticateToken, teacherOrOwner, getTeacherLeaderboard);
+
+// Student leaderboard view: top 5 scores + own rank
+router.get('/:testId/my-leaderboard', authenticateToken, studentOnly, getStudentLeaderboard);
 
 // Publish a test (Owner and Teacher can access)
 router.patch('/:testId/publish', authenticateToken, teacherOrOwner, publishTest);

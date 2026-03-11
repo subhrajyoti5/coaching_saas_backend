@@ -2,296 +2,359 @@ const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
-// Create coaching center and insert the creator as OWNER in coaching_users
+const splitName = (name = '') => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const parts = trimmed.split(/\s+/);
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' ')
+  };
+};
+
+const buildName = (firstName = '', lastName = '') => {
+  return [firstName, lastName].filter(Boolean).join(' ').trim() || 'User';
+};
+
+const mapUserSummary = (user) => {
+  const { firstName, lastName } = splitName(user.name);
+  return {
+    id: user.id,
+    userId: user.id,
+    email: user.email,
+    firstName,
+    lastName,
+    name: user.name,
+    isActive: user.is_active,
+    role: user.role,
+    coachingId: user.coaching_center_id
+  };
+};
+
 const createCoaching = async (coachingData, creatorId) => {
-  const { name, description } = coachingData;
+  const { name } = coachingData;
 
   const coaching = await prisma.$transaction(async (tx) => {
-    const newCoaching = await tx.coachingCentre.create({
-      data: { name, description, ownerId: creatorId }
+    const newCoaching = await tx.coachingCenter.create({
+      data: {
+        name,
+        owner_user_id: creatorId
+      }
     });
 
-    // Ownership is scoped to this coaching via coaching_users
-    await tx.coachingUser.create({
+    await tx.user.update({
+      where: { id: creatorId },
       data: {
-        userId: creatorId,
-        coachingId: newCoaching.id,
         role: ROLES.OWNER,
-        assignedBy: creatorId
+        coaching_center_id: newCoaching.id
       }
     });
 
     return newCoaching;
   });
 
-  await audit({ userId: creatorId, action: 'CREATE_COACHING', entityType: 'COACHING', entityId: coaching.id, metadata: { coachingId: coaching.id } });
+  await audit({
+    userId: creatorId,
+    action: 'CREATE_COACHING',
+    entityType: 'COACHING',
+    entityId: coaching.id,
+    metadata: { coachingId: coaching.id }
+  });
+
   return coaching;
 };
 
-// Helper to find or create a user by email (for onboarding by owner)
 const findOrCreateUserByEmail = async (email, firstName = 'User', lastName = '') => {
   let user = await prisma.user.findUnique({ where: { email } });
+
   if (!user) {
     user = await prisma.user.create({
       data: {
         email,
-        firstName,
-        lastName,
-        password: '', // Password-less for Google Login
-        isActive: true
+        name: buildName(firstName, lastName),
+        role: ROLES.STUDENT,
+        is_active: true
       }
     });
-  } else if (!user.isActive) {
+  } else if (!user.is_active) {
     throw new Error('User account is inactive');
   }
+
   return user;
 };
 
-// Add teacher by email: creates placeholder user if not existing
 const addTeacherToCoaching = async (email, coachingId, addedBy, teacherData = {}) => {
-  const user = await findOrCreateUserByEmail(email, teacherData.firstName || 'Teacher', teacherData.lastName || '');
-  const userId = user.id;
+  const numericCoachingId = Number(coachingId);
+  const user = await findOrCreateUserByEmail(
+    email,
+    teacherData.firstName || 'Teacher',
+    teacherData.lastName || ''
+  );
 
-  const existing = await prisma.coachingUser.findFirst({ where: { userId, coachingId } });
-  if (existing) {
+  if (user.coaching_center_id === numericCoachingId) {
     const error = new Error('DUPLICATE_MEMBER:This teacher is already added to your coaching center');
     error.code = 'DUPLICATE_MEMBER';
     throw error;
   }
 
-  const coachingUser = await prisma.coachingUser.create({
-    data: { userId, coachingId, role: ROLES.TEACHER, assignedBy: addedBy }
+  if (user.coaching_center_id != null && user.coaching_center_id !== numericCoachingId) {
+    throw new Error('This teacher is already assigned to another coaching center');
+  }
+
+  const existingName = splitName(user.name);
+  const updatedUser = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      name: buildName(
+        teacherData.firstName || existingName.firstName || 'Teacher',
+        teacherData.lastName || existingName.lastName
+      ),
+      role: ROLES.TEACHER,
+      coaching_center_id: numericCoachingId,
+      is_active: true
+    }
   });
 
-  await audit({ userId: addedBy, action: 'ADD_TEACHER', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { coachingId, targetEmail: email } });
-  return coachingUser;
+  await audit({
+    userId: addedBy,
+    action: 'ADD_TEACHER',
+    entityType: 'USER',
+    entityId: updatedUser.id,
+    metadata: { coachingId: numericCoachingId, targetEmail: email }
+  });
+
+  return {
+    id: updatedUser.id,
+    userId: updatedUser.id,
+    coachingId: numericCoachingId,
+    role: updatedUser.role,
+    user: mapUserSummary(updatedUser)
+  };
 };
 
-// Add student by email: creates placeholder user + profile
 const addStudentToCoaching = async (email, coachingId, addedBy, studentData = {}) => {
-  const user = await findOrCreateUserByEmail(email, studentData.firstName || 'Student', studentData.lastName || '');
-  const userId = user.id;
+  const numericCoachingId = Number(coachingId);
+  const user = await findOrCreateUserByEmail(
+    email,
+    studentData.firstName || 'Student',
+    studentData.lastName || ''
+  );
 
-  const existing = await prisma.coachingUser.findFirst({ where: { userId, coachingId } });
-  if (existing) {
+  if (user.coaching_center_id === numericCoachingId) {
     const error = new Error('DUPLICATE_MEMBER:This student is already added to your coaching center');
     error.code = 'DUPLICATE_MEMBER';
     throw error;
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const coachingUser = await tx.coachingUser.create({
-      data: { userId, coachingId, role: ROLES.STUDENT, assignedBy: addedBy }
-    });
+  if (user.coaching_center_id != null && user.coaching_center_id !== numericCoachingId) {
+    throw new Error('This student is already assigned to another coaching center');
+  }
 
-    const studentProfile = await tx.studentProfile.create({
-      data: {
-        userId,
-        coachingId,
-        parentName: studentData.parentName,
-        parentPhone: studentData.parentPhone,
-        parentEmail: studentData.parentEmail,
-        gradeLevel: studentData.gradeLevel,
-        admissionDate: studentData.admissionDate ? new Date(studentData.admissionDate) : undefined
-      }
-    });
-
-    return { coachingUser, studentProfile };
+  const existingName = splitName(user.name);
+  const updatedUser = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      name: buildName(
+        studentData.firstName || existingName.firstName || 'Student',
+        studentData.lastName || existingName.lastName
+      ),
+      role: ROLES.STUDENT,
+      coaching_center_id: numericCoachingId,
+      is_active: true
+    }
   });
 
-  await audit({ userId: addedBy, action: 'ADD_STUDENT', entityType: 'STUDENT_PROFILE', entityId: result.studentProfile.id, metadata: { coachingId, targetEmail: email } });
-  return result;
+  const studentProfile = {
+    id: updatedUser.id,
+    userId: updatedUser.id,
+    coachingId: numericCoachingId,
+    parentName: studentData.parentName || null,
+    parentPhone: studentData.parentPhone || null,
+    parentEmail: studentData.parentEmail || null,
+    gradeLevel: studentData.gradeLevel || null,
+    admissionDate: studentData.admissionDate || null,
+    firstName: splitName(updatedUser.name).firstName,
+    lastName: splitName(updatedUser.name).lastName,
+    email: updatedUser.email
+  };
+
+  await audit({
+    userId: addedBy,
+    action: 'ADD_STUDENT',
+    entityType: 'USER',
+    entityId: updatedUser.id,
+    metadata: { coachingId: numericCoachingId, targetEmail: email }
+  });
+
+  return {
+    coachingUser: {
+      id: updatedUser.id,
+      userId: updatedUser.id,
+      coachingId: numericCoachingId,
+      role: updatedUser.role,
+      user: mapUserSummary(updatedUser)
+    },
+    studentProfile
+  };
 };
 
 const getCoachingById = async (coachingId) => {
-  const coaching = await prisma.coachingCentre.findFirst({
-    where: { id: coachingId, isActive: true },
-    include: {
-      owner: { select: { id: true, email: true, firstName: true, lastName: true } }
-    }
+  const coaching = await prisma.coachingCenter.findFirst({
+    where: { id: Number(coachingId) }
   });
 
-  if (!coaching) throw new Error('Coaching center not found');
-  return coaching;
+  if (!coaching) {
+    throw new Error('Coaching center not found');
+  }
+
+  let owner = null;
+  if (coaching.owner_user_id != null) {
+    const ownerUser = await prisma.user.findUnique({
+      where: { id: coaching.owner_user_id }
+    });
+    if (ownerUser) {
+      owner = mapUserSummary(ownerUser);
+    }
+  }
+
+  return { ...coaching, owner };
 };
 
 const getUserCoachingCenters = async (userId) => {
-  const coachingUsers = await prisma.coachingUser.findMany({
-    where: { userId },
-    include: {
-      coaching: {
-        include: {
-          owner: { select: { id: true, firstName: true, lastName: true } }
-        }
-      }
-    }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.coaching_center_id == null) {
+    return [];
+  }
+
+  const coaching = await prisma.coachingCenter.findUnique({
+    where: { id: user.coaching_center_id }
   });
 
-  return coachingUsers.map(cu => ({ ...cu.coaching, role: cu.role }));
+  return coaching ? [{ ...coaching, role: user.role }] : [];
 };
 
 const getTeachersByCoaching = async (coachingId) => {
-  const coachingUsers = await prisma.coachingUser.findMany({
-    where: { coachingId, role: ROLES.TEACHER },
-    include: {
-      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true, isActive: true } }
+  const teachers = await prisma.user.findMany({
+    where: {
+      coaching_center_id: Number(coachingId),
+      role: ROLES.TEACHER,
+      is_active: true
     }
   });
 
-  return coachingUsers.map(cu => cu.user);
+  return teachers.map(mapUserSummary);
 };
 
 const getStudentsByCoaching = async (coachingId) => {
-  // Get all students with StudentProfile
-  const studentProfiles = await prisma.studentProfile.findMany({
-    where: { coachingId },
-    include: {
-      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } }
+  const students = await prisma.user.findMany({
+    where: {
+      coaching_center_id: Number(coachingId),
+      role: ROLES.STUDENT,
+      is_active: true
     }
   });
 
-  const profileMap = new Map(studentProfiles.map(sp => [sp.userId, sp]));
-
-  // Also get students from CoachingUser table who might not have StudentProfile yet
-  const coachingUsers = await prisma.coachingUser.findMany({
-    where: { coachingId, role: ROLES.STUDENT },
-    include: {
-      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } }
-    }
-  });
-
-  // Merge results: use StudentProfile if exists, otherwise create from CoachingUser
-  const allStudents = coachingUsers.map(cu => {
-    if (profileMap.has(cu.userId)) {
-      const sp = profileMap.get(cu.userId);
-      return {
-        id: sp.id,
-        userId: sp.userId,
-        email: sp.user.email,
-        firstName: sp.user.firstName,
-        lastName: sp.user.lastName,
-        phone: sp.user.phone,
-        gradeLevel: sp.gradeLevel,
-        batchId: sp.batchId
-      };
-    } else {
-      // Student exists in CoachingUser but no StudentProfile yet
-      // Return user data with a note (frontend can handle this)
-      return {
-        id: null,  // Will need to create StudentProfile first
-        userId: cu.userId,
-        email: cu.user.email,
-        firstName: cu.user.firstName,
-        lastName: cu.user.lastName,
-        phone: cu.user.phone,
-        gradeLevel: null,
-        batchId: null,
-        profileMissing: true
-      };
-    }
-  });
-
-  return allStudents;
+  return students.map((student) => ({
+    ...mapUserSummary(student),
+    gradeLevel: null,
+    batchId: null
+  }));
 };
 
 const deactivateCoaching = async (coachingId, requesterId) => {
-  const coaching = await prisma.coachingCentre.update({
-    where: { id: coachingId },
-    data: { isActive: false, deletedAt: new Date() }
+  const coaching = await prisma.coachingCenter.delete({
+    where: { id: Number(coachingId) }
   });
-  await audit({ userId: requesterId, action: 'DEACTIVATE_COACHING', entityType: 'COACHING', entityId: coachingId, metadata: { coachingId } });
+
+  await audit({
+    userId: requesterId,
+    action: 'DEACTIVATE_COACHING',
+    entityType: 'COACHING',
+    entityId: Number(coachingId),
+    metadata: { coachingId: Number(coachingId) }
+  });
+
   return coaching;
 };
 
-// Update student profile (firstName, lastName)
 const updateStudentProfile = async (userId, coachingId, updateData, requesterId) => {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) throw new Error('User not found');
+  const numericUserId = Number(userId);
+  const numericCoachingId = Number(coachingId);
+  const user = await prisma.user.findUnique({ where: { id: numericUserId } });
 
-  const coachingUser = await prisma.coachingUser.findFirst({
-    where: { userId, coachingId, role: ROLES.STUDENT }
-  });
-  if (!coachingUser) throw new Error('Student not found in this coaching center');
+  if (!user || user.coaching_center_id !== numericCoachingId || user.role !== ROLES.STUDENT) {
+    throw new Error('Student not found in this coaching center');
+  }
 
+  const existingName = splitName(user.name);
   const updated = await prisma.user.update({
-    where: { id: userId },
+    where: { id: numericUserId },
     data: {
-      firstName: updateData.firstName || user.firstName,
-      lastName: updateData.lastName || user.lastName
+      name: buildName(
+        updateData.firstName || existingName.firstName,
+        updateData.lastName || existingName.lastName
+      )
     }
   });
 
-  await audit({ userId: requesterId, action: 'UPDATE_STUDENT', entityType: 'USER', entityId: userId, metadata: { coachingId } });
-  return updated;
+  await audit({
+    userId: requesterId,
+    action: 'UPDATE_STUDENT',
+    entityType: 'USER',
+    entityId: numericUserId,
+    metadata: { coachingId: numericCoachingId }
+  });
+
+  return mapUserSummary(updated);
 };
 
-// Remove student from coaching center (soft delete)
 const removeStudentFromCoaching = async (userId, coachingId, requesterId) => {
-  const coachingUser = await prisma.coachingUser.findFirst({
-    where: { userId, coachingId, role: ROLES.STUDENT }
-  });
-  if (!coachingUser) throw new Error('Student not found in this coaching center');
+  const numericUserId = Number(userId);
+  const numericCoachingId = Number(coachingId);
+  const user = await prisma.user.findUnique({ where: { id: numericUserId } });
 
-  await prisma.$transaction(async (tx) => {
-    // Remove student from coaching
-    await tx.coachingUser.deleteMany({
-      where: { userId, coachingId }
-    });
+  if (!user || user.coaching_center_id !== numericCoachingId || user.role !== ROLES.STUDENT) {
+    throw new Error('Student not found in this coaching center');
+  }
 
-    // Soft delete student profile
-    await tx.studentProfile.updateMany({
-      where: { userId, coachingId },
-      data: { isActive: false, deletedAt: new Date() }
-    });
+  await prisma.user.update({
+    where: { id: numericUserId },
+    data: { coaching_center_id: null }
   });
 
-  await audit({ userId: requesterId, action: 'REMOVE_STUDENT', entityType: 'COACHING_USER', entityId: coachingUser.id, metadata: { coachingId, targetUserId: userId } });
+  await audit({
+    userId: requesterId,
+    action: 'REMOVE_STUDENT',
+    entityType: 'USER',
+    entityId: numericUserId,
+    metadata: { coachingId: numericCoachingId, targetUserId: numericUserId }
+  });
+
   return { success: true };
 };
 
-// Get coaching center statistics (counts) - OPTIMIZED with Promise.all
 const getCoachingStats = async (coachingId) => {
-  try {
-    console.log('🔍 getCoachingStats: querying for coachingId =', coachingId);
-    
-    const [studentCount, teacherCount, batchCount] = await Promise.all([
-      prisma.coachingUser.count({
-        where: { coachingId, role: ROLES.STUDENT }
-      }),
-      prisma.coachingUser.count({
-        where: { coachingId, role: ROLES.TEACHER }
-      }),
-      prisma.batch.count({
-        where: { coachingId, isActive: true, deletedAt: null }
-      })
-    ]);
+  const numericCoachingId = Number(coachingId);
+  const [studentCount, teacherCount, batchCount] = await Promise.all([
+    prisma.user.count({
+      where: { coaching_center_id: numericCoachingId, role: ROLES.STUDENT, is_active: true }
+    }),
+    prisma.user.count({
+      where: { coaching_center_id: numericCoachingId, role: ROLES.TEACHER, is_active: true }
+    }),
+    prisma.batch.count({
+      where: { coaching_center_id: numericCoachingId }
+    })
+  ]);
 
-    console.log('📊 Query results:', { studentCount, teacherCount, batchCount });
-    return { studentCount, teacherCount, batchCount };
-  } catch (error) {
-    console.error('❌ getCoachingStats error:', error);
-    throw error;
-  }
+  return { studentCount, teacherCount, batchCount };
 };
 
-// Get recent audit logs for a coaching center (activity history) - FILTERED BY COACHING
-const getCoachingAuditLogs = async (coachingId, limit = 20) => {
-  const logs = await prisma.auditLog.findMany({
-    where: {
-      action: { in: ['ADD_STUDENT', 'ADD_TEACHER', 'REMOVE_STUDENT', 'UPDATE_STUDENT', 'CREATE_COACHING'] },
-      metadata: {
-        path: ['coachingId'],
-        equals: coachingId
-      }
-    },
-    include: {
-      user: { select: { id: true, email: true, firstName: true, lastName: true } }
-    },
-    orderBy: { createdAt: 'desc' },
-    take: limit
-  });
-
-  return logs;
+const getCoachingAuditLogs = async () => {
+  return [];
 };
 
 module.exports = {

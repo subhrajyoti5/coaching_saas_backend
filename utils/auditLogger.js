@@ -2,6 +2,10 @@ const prisma = require('../config/database');
 
 const audit = async ({ userId, action, entityType, entityId = null, metadata = null, ipAddress = null }) => {
     try {
+        if (!prisma.auditLog) {
+            return;
+        }
+
         await prisma.auditLog.create({
             data: {
                 userId: userId || null,

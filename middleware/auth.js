@@ -26,7 +26,7 @@ const authenticateToken = async (req, res, next) => {
       where: { id: decoded.userId }
     });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.is_active) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         error: ERROR_MESSAGES.USER_NOT_FOUND,
         message: 'User no longer exists or has been deactivated'

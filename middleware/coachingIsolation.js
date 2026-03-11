@@ -17,19 +17,19 @@ const validateCoachingAccess = async (req, res, next) => {
       });
     }
 
-    const coachingUser = await prisma.coachingUser.findFirst({
-      where: { userId, coachingId }
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
     });
 
-    if (!coachingUser) {
+    if (!user || user.coaching_center_id !== Number(coachingId)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
         message: 'You do not have access to this coaching center'
       });
     }
 
-    req.coachingId = coachingId;
-    req.coachingRole = coachingUser.role;
+    req.coachingId = Number(coachingId);
+    req.coachingRole = user.role;
     next();
   } catch (error) {
     console.error('Coaching access validation error:', error);
@@ -54,7 +54,7 @@ const validateBatchAccess = async (req, res, next) => {
     }
 
     const batch = await prisma.batch.findFirst({
-      where: { id: batchId, isActive: true }
+      where: { id: Number(batchId) }
     });
 
     if (!batch) {
@@ -65,26 +65,26 @@ const validateBatchAccess = async (req, res, next) => {
     }
 
     // Ensure the batch belongs to the coaching in the JWT
-    if (coachingId && batch.coachingId !== coachingId) {
+    if (coachingId && batch.coaching_center_id !== Number(coachingId)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
         message: 'Batch does not belong to your current coaching context'
       });
     }
 
-    const coachingUser = await prisma.coachingUser.findFirst({
-      where: { userId, coachingId: batch.coachingId }
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
     });
 
-    if (!coachingUser) {
+    if (!user || user.coaching_center_id !== batch.coaching_center_id) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
         message: 'You do not have access to this batch'
       });
     }
 
-    req.batchId = batchId;
-    req.coachingId = batch.coachingId;
+    req.batchId = Number(batchId);
+    req.coachingId = batch.coaching_center_id;
     next();
   } catch (error) {
     console.error('Batch access validation error:', error);
@@ -108,30 +108,30 @@ const validateStudentAccess = async (req, res, next) => {
       });
     }
 
-    const studentProfile = await prisma.studentProfile.findUnique({
-      where: { id: studentId }
+    const student = await prisma.user.findUnique({
+      where: { id: Number(studentId) }
     });
 
-    if (!studentProfile) {
+    if (!student || student.role !== 'STUDENT') {
       return res.status(HTTP_STATUS.NOT_FOUND).json({
         error: ERROR_MESSAGES.RESOURCE_NOT_FOUND,
         message: 'Student not found'
       });
     }
 
-    const coachingUser = await prisma.coachingUser.findFirst({
-      where: { userId, coachingId: studentProfile.coachingId }
+    const requester = await prisma.user.findUnique({
+      where: { id: userId }
     });
 
-    if (!coachingUser) {
+    if (!requester || requester.coaching_center_id !== student.coaching_center_id) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
         message: 'You do not have access to this student'
       });
     }
 
-    req.studentId = studentId;
-    req.coachingId = studentProfile.coachingId;
+    req.studentId = Number(studentId);
+    req.coachingId = student.coaching_center_id;
     next();
   } catch (error) {
     console.error('Student access validation error:', error);

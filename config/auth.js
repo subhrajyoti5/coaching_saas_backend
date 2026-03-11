@@ -9,8 +9,10 @@ const generateAccessToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
 };
 
-const generateRefreshToken = () => {
-  return crypto.randomBytes(64).toString('hex');
+const generateRefreshToken = (payload = {}) => {
+  return jwt.sign({ ...payload, tokenType: 'refresh' }, process.env.JWT_SECRET, {
+    expiresIn: REFRESH_TOKEN_EXPIRY
+  });
 };
 
 const verifyToken = (token, secret = process.env.JWT_SECRET) => {

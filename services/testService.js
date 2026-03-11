@@ -130,6 +130,14 @@ const addQuestionToTest = async (questionData) => {
   const test = await prisma.test.findFirst({ where: { id: testId, isActive: true } });
   if (!test) throw new Error('Test not found');
 
+  const existingQuestionCount = await prisma.question.count({
+    where: { testId }
+  });
+
+  if (existingQuestionCount >= 30) {
+    throw new Error('A test can have a maximum of 30 questions');
+  }
+
   return prisma.question.create({
     data: { 
       testId, 
@@ -220,6 +228,10 @@ const submitTest = async ({ testId, answers }, userId) => {
   });
   if (!test) throw new Error('Test not found');
 
+  const now = new Date();
+  if (now < test.startDate) throw new Error('Test has not started yet');
+  if (now > test.endDate) throw new Error('Test window has closed');
+
   const studentProfile = await prisma.studentProfile.findFirst({
     where: { userId, coachingId: test.coachingId }
   });
@@ -299,6 +311,101 @@ const submitTest = async ({ testId, answers }, userId) => {
   return result;
 };
 
+const getTeacherLeaderboard = async (testId, coachingId) => {
+  const test = await prisma.test.findFirst({
+    where: { id: testId, coachingId, isActive: true },
+    select: { id: true, title: true }
+  });
+
+  if (!test) throw new Error('Test not found');
+
+  const results = await prisma.result.findMany({
+    where: { testId },
+    include: {
+      student: {
+        include: {
+          user: {
+            select: {
+              firstName: true,
+              lastName: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: [
+      { score: 'desc' },
+      { submittedAt: 'asc' }
+    ]
+  });
+
+  const ranking = results.map((row, index) => ({
+    rank: index + 1,
+    studentId: row.studentId,
+    studentName: `${row.student.user.firstName} ${row.student.user.lastName}`.trim(),
+    score: row.score,
+    totalMarks: row.totalMarks,
+    percentage: row.percentage,
+    submittedAt: row.submittedAt
+  }));
+
+  return {
+    test,
+    totalParticipants: ranking.length,
+    ranking
+  };
+};
+
+const getStudentLeaderboard = async (testId, userId, coachingId) => {
+  const test = await prisma.test.findFirst({
+    where: { id: testId, coachingId, isActive: true },
+    select: { id: true, title: true }
+  });
+
+  if (!test) throw new Error('Test not found');
+
+  const studentProfile = await prisma.studentProfile.findFirst({
+    where: { userId, coachingId },
+    select: { id: true }
+  });
+
+  if (!studentProfile) throw new Error('Student profile not found');
+
+  const results = await prisma.result.findMany({
+    where: { testId },
+    orderBy: [
+      { score: 'desc' },
+      { submittedAt: 'asc' }
+    ],
+    select: {
+      studentId: true,
+      score: true,
+      submittedAt: true
+    }
+  });
+
+  const top5 = results.slice(0, 5).map((row, index) => ({
+    rank: index + 1,
+    score: row.score
+  }));
+
+  const myIndex = results.findIndex((row) => row.studentId === studentProfile.id);
+  const myStanding = myIndex === -1
+    ? null
+    : {
+        rank: myIndex + 1,
+        score: results[myIndex].score,
+        submittedAt: results[myIndex].submittedAt
+      };
+
+  return {
+    test,
+    totalParticipants: results.length,
+    top5,
+    myStanding
+  };
+};
+
 // Students fetch their own results — userId comes from JWT
 const getMyResults = async (userId, coachingId) => {
   const studentProfile = await prisma.studentProfile.findFirst({
@@ -368,6 +475,8 @@ module.exports = {
   getMyResults,
   getStudentResults,
   getTestResults,
+  getTeacherLeaderboard,
+  getStudentLeaderboard,
   deactivateTest,
   publishTest
 };

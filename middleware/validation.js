@@ -37,41 +37,41 @@ const validateCreateCoaching = [
 const validateAddTeacher = [
   // Changed from userId/UUID to email for the new onboarding flow
   body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
+  body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   handleValidationErrors
 ];
 
 const validateAddStudent = [
   // Changed from userId/UUID to email for the new onboarding flow
   body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
+  body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   body('studentData').optional().isObject().withMessage('Student data must be an object'),
   handleValidationErrors
 ];
 
 const validateCreateBatch = [
   body('name').trim().isLength({ min: 1 }).withMessage('Batch name is required'),
-  body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
+  body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   handleValidationErrors
 ];
 
 const validateAssignTeacher = [
-  body('teacherId').isUUID().withMessage('Valid teacher ID is required'),
-  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('teacherId').isInt({ min: 1 }).withMessage('Valid teacher ID is required'),
+  body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
   handleValidationErrors
 ];
 
 const validateAssignStudent = [
-  body('studentId').isUUID().withMessage('Valid student profil ID is required'),
-  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('studentId').isInt({ min: 1 }).withMessage('Valid student ID is required'),
+  body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
   handleValidationErrors
 ];
 
 const validateCreateTest = [
   body('title').trim().isLength({ min: 1 }).withMessage('Test title is required'),
-  body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
+  body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   body('batchIds').isArray({ min: 1 }).withMessage('At least one batch must be selected'),
-  body('batchIds.*').isUUID().withMessage('Each batchId must be a valid UUID'),
+  body('batchIds.*').isInt({ min: 1 }).withMessage('Each batchId must be a valid ID'),
   body('duration').isInt({ min: 1 }).withMessage('Duration must be a positive integer'),
   body('startDate').isISO8601().withMessage('Start date must be valid'),
   body('endDate').isISO8601().withMessage('End date must be valid'),
@@ -80,12 +80,12 @@ const validateCreateTest = [
 ];
 
 const validateCreateQuestion = [
-  body('testId').isUUID().withMessage('Valid test ID is required'),
+  body('testId').isInt({ min: 1 }).withMessage('Valid test ID is required'),
   body('questionText').trim().isLength({ min: 1 }).withMessage('Question text is required'),
   body('optionA').trim().isLength({ min: 1 }).withMessage('Option A is required'),
   body('optionB').trim().isLength({ min: 1 }).withMessage('Option B is required'),
-  body('optionC').optional().trim(),
-  body('optionD').optional().trim(),
+  body('optionC').trim().isLength({ min: 1 }).withMessage('Option C is required'),
+  body('optionD').trim().isLength({ min: 1 }).withMessage('Option D is required'),
   body('correctAnswer').isIn(['A', 'B', 'C', 'D']).withMessage('Correct answer must be A, B, C, or D'),
   body('marks').optional().isFloat({ min: 0 }).withMessage('Marks must be non-negative'),
   body('durationSeconds').optional().isInt({ min: 1 }).withMessage('Duration seconds must be a positive integer'),
@@ -93,15 +93,15 @@ const validateCreateQuestion = [
 ];
 
 const validateCreateFee = [
-  body('studentId').isUUID().withMessage('Valid student profile ID is required'),
-  body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
+  body('studentId').isInt({ min: 1 }).withMessage('Valid student ID is required'),
+  body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   body('amount').isFloat({ min: 0 }).withMessage('Amount must be non-negative'),
   handleValidationErrors
 ];
 
 const validateCreateNotice = [
-  body('coachingId').isUUID().withMessage('Valid coaching ID is required'),
-  body('batchId').optional({ nullable: true }).isUUID().withMessage('batchId must be a valid UUID'),
+  body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
+  body('batchId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('batchId must be a valid ID'),
   body('title').trim().isLength({ min: 1 }).withMessage('Notice title is required'),
   body('content').trim().isLength({ min: 1 }).withMessage('Notice content is required'),
   body('expiresAt').optional({ nullable: true }).isISO8601().withMessage('expiresAt must be a valid ISO date'),
@@ -109,23 +109,23 @@ const validateCreateNotice = [
 ];
 
 const validateMarkBatchAttendance = [
-  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
   body('classDate').optional().isISO8601().withMessage('classDate must be a valid ISO date'),
   body('records').isArray({ min: 1 }).withMessage('records must be a non-empty array'),
-  body('records.*.studentId').isUUID().withMessage('Valid studentId is required for each record'),
-  body('records.*.status').isIn(['PRESENT', 'ABSENT']).withMessage('status must be PRESENT or ABSENT'),
+  body('records.*.studentId').isInt({ min: 1 }).withMessage('Valid studentId is required for each record'),
+  body('records.*.status').isIn(['PRESENT', 'ABSENT', 'LATE']).withMessage('status must be PRESENT, ABSENT, or LATE'),
   body('records.*.remarks').optional({ nullable: true }).isString().withMessage('remarks must be a string'),
   handleValidationErrors
 ];
 
 const validateUpdateAttendance = [
-  body('status').isIn(['PRESENT', 'ABSENT']).withMessage('status must be PRESENT or ABSENT'),
+  body('status').isIn(['PRESENT', 'ABSENT', 'LATE']).withMessage('status must be PRESENT, ABSENT, or LATE'),
   body('remarks').optional({ nullable: true }).isString().withMessage('remarks must be a string'),
   handleValidationErrors
 ];
 
 const validateUploadTeacherDocument = [
-  body('batchId').isUUID().withMessage('Valid batch ID is required'),
+  body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
   body('title').trim().isLength({ min: 1, max: 120 }).withMessage('Title is required and must be under 120 characters'),
   body('description').optional({ nullable: true }).trim().isLength({ max: 1000 }).withMessage('Description must be under 1000 characters'),
   body('isSharedWithStudents').optional().isBoolean().withMessage('isSharedWithStudents must be true or false'),

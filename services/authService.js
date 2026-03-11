@@ -1,33 +1,60 @@
 const prisma = require('../config/database');
-const bcrypt = require('bcryptjs');
 const { generateAccessToken, generateRefreshToken } = require('../config/auth');
 const { audit } = require('../utils/auditLogger');
+
+const splitName = (name = '') => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const parts = trimmed.split(/\s+/);
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' ')
+  };
+};
+
+const mapUserForClient = (user) => {
+  const { firstName, lastName } = splitName(user.name);
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    coaching_center_id: user.coaching_center_id,
+    firstName,
+    lastName,
+    name: user.name,
+    isActive: user.is_active,
+    createdAt: user.created_at,
+    lastLogin: user.last_login
+  };
+};
 
 // LOGIN: General login logic (supports both email/password and Google after email verification)
 const finalizeLogin = async (user) => {
   const accessToken = generateAccessToken({ userId: user.id });
 
-  const coachingMemberships = await prisma.coachingUser.findMany({
-    where: { userId: user.id, coaching: { isActive: true } },
-    include: {
-      coaching: { select: { id: true, name: true, description: true } }
-    }
-  });
+  let coachingMemberships = [];
+  if (user.coaching_center_id != null) {
+    const coaching = await prisma.coachingCenter.findUnique({
+      where: { id: user.coaching_center_id },
+      select: { id: true, name: true }
+    });
 
-  if (coachingMemberships.length === 0) {
-    throw new Error('You are not associated with any active coaching center. Contact your center owner.');
+    if (coaching) {
+      coachingMemberships = [{
+        coachingId: coaching.id,
+        role: user.role,
+        coaching
+      }];
+    }
   }
 
-  const { password: _, ...userWithoutPassword } = user;
-
   return {
-    user: userWithoutPassword,
+    user: mapUserForClient(user),
     accessToken,
-    coachingMemberships: coachingMemberships.map(cm => ({
-      coachingId: cm.coachingId,
-      role: cm.role,
-      coaching: cm.coaching
-    }))
+    coachingMemberships
   };
 };
 
@@ -69,9 +96,16 @@ const loginWithGoogle = async (token) => {
 
     user = await prisma.user.findUnique({ where: { email: googleEmail } });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.is_active) {
       throw new Error('Access denied. This email is not registered by any coaching center.');
     }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { last_login: new Date() }
+    });
+
+    user = await prisma.user.findUnique({ where: { id: user.id } });
   } catch (error) {
     throw new Error(`Google login failed: ${error.message}`);
   }
@@ -83,87 +117,110 @@ const loginWithGoogle = async (token) => {
 };
 
 const selectCoaching = async (userId, coachingId) => {
-  const coachingUser = await prisma.coachingUser.findFirst({
-    where: { userId, coachingId },
-    include: {
-      coaching: { select: { id: true, name: true, isActive: true } }
-    }
+  const numericCoachingId = Number(coachingId);
+  const user = await prisma.user.findUnique({
+    where: { id: userId }
   });
 
-  if (!coachingUser || !coachingUser.coaching.isActive) {
+  if (!user || !user.is_active || user.coaching_center_id !== numericCoachingId) {
     throw new Error('You do not have access to this coaching center');
+  }
+
+  const coaching = await prisma.coachingCenter.findUnique({
+    where: { id: numericCoachingId },
+    select: { id: true, name: true }
+  });
+
+  if (!coaching) {
+    throw new Error('Coaching center not found');
   }
 
   // Issue scoped access token
   const accessToken = generateAccessToken({
     userId,
-    role: coachingUser.role,
-    coachingId
+    role: user.role,
+    coachingId: numericCoachingId
   });
 
-  // Issue refresh token
-  const rawRefreshToken = generateRefreshToken();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-  await prisma.refreshToken.create({
-    data: { userId, token: rawRefreshToken, expiresAt }
+  const rawRefreshToken = generateRefreshToken({
+    userId,
+    coachingId: numericCoachingId,
+    role: user.role
   });
 
-  await audit({ userId, action: 'SELECT_COACHING', entityType: 'COACHING', entityId: coachingId });
+  await audit({ userId, action: 'SELECT_COACHING', entityType: 'COACHING', entityId: numericCoachingId, metadata: { coachingId: numericCoachingId } });
 
   return {
     accessToken,
     refreshToken: rawRefreshToken,
-    role: coachingUser.role,
-    coachingId,
-    coachingName: coachingUser.coaching.name
+    role: user.role,
+    coachingId: numericCoachingId,
+    coachingName: coaching.name
   };
 };
 
 const refreshAccessToken = async (rawRefreshToken, coachingId) => {
-  const stored = await prisma.refreshToken.findUnique({
-    where: { token: rawRefreshToken }
-  });
+  const { verifyToken } = require('../config/auth');
+  const decoded = verifyToken(rawRefreshToken);
 
-  if (!stored || stored.expiresAt < new Date()) {
+  if (!decoded || decoded.tokenType !== 'refresh') {
     throw new Error('Refresh token is invalid or expired');
   }
 
-  const coachingUser = await prisma.coachingUser.findFirst({
-    where: { userId: stored.userId, coachingId, coaching: { isActive: true } }
+  const numericCoachingId = Number(coachingId || decoded.coachingId);
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.userId }
   });
 
-  if (!coachingUser) {
+  if (!user || !user.is_active || user.coaching_center_id !== numericCoachingId) {
     throw new Error('Access denied or coaching center inactive');
   }
 
   const accessToken = generateAccessToken({
-    userId: stored.userId,
-    role: coachingUser.role,
-    coachingId
+    userId: decoded.userId,
+    role: user.role,
+    coachingId: numericCoachingId
   });
 
   return { accessToken };
 };
 
 const logoutUser = async (rawRefreshToken) => {
-  if (!rawRefreshToken) return;
-  await prisma.refreshToken.deleteMany({ where: { token: rawRefreshToken } });
+  return !!rawRefreshToken;
 };
 
 const getUserCoachingCentres = async (userId) => {
-  const coachingUsers = await prisma.coachingUser.findMany({
-    where: { userId, coaching: { isActive: true } },
-    include: {
-      coaching: { select: { id: true, name: true, description: true, isActive: true } }
-    }
+  const user = await prisma.user.findUnique({
+    where: { id: userId }
   });
 
-  return coachingUsers.map(cu => ({
-    coachingId: cu.coachingId,
-    role: cu.role,
-    coaching: cu.coaching
-  }));
+  if (!user || user.coaching_center_id == null) {
+    return [];
+  }
+
+  const coaching = await prisma.coachingCenter.findUnique({
+    where: { id: user.coaching_center_id },
+    select: { id: true, name: true }
+  });
+
+  if (!coaching) {
+    return [];
+  }
+
+  return [{
+    coachingId: coaching.id,
+    role: user.role,
+    coaching
+  }];
+};
+
+const getUserById = async (userId) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.is_active) {
+    throw new Error('User not found');
+  }
+
+  return mapUserForClient(user);
 };
 
 module.exports = {
@@ -171,5 +228,6 @@ module.exports = {
   selectCoaching,
   refreshAccessToken,
   logoutUser,
-  getUserCoachingCentres
+  getUserCoachingCentres,
+  getUserById
 };

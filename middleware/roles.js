@@ -23,24 +23,41 @@ const requireRole = (...allowedRoles) => {
         });
       }
 
-      // Verify that the role in the JWT still matches the database
       const coachingId = req.user.coachingId;
-      if (coachingId) {
-        const coachingUser = await prisma.coachingUser.findFirst({
-          where: {
-            userId: req.user.userId,
-            coachingId,
-            role
-          }
-        });
+      const currentUser = await prisma.user.findUnique({
+        where: { id: req.user.userId }
+      });
 
-        if (!coachingUser) {
+      if (!currentUser || !currentUser.is_active) {
+        return res.status(HTTP_STATUS.FORBIDDEN).json({
+          error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+          message: 'Your account is no longer active.'
+        });
+      }
+
+      if (currentUser.role !== role) {
+        return res.status(HTTP_STATUS.FORBIDDEN).json({
+          error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+          message: 'Your role has changed. Please re-login.'
+        });
+      }
+
+      if (coachingId && currentUser.coaching_center_id !== coachingId) {
+        return res.status(HTTP_STATUS.FORBIDDEN).json({
+          error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+          message: 'Your coaching center access has changed. Please re-login.'
+        });
+      }
+
+      if (coachingId) {
+        req.coachingId = coachingId;
+      }
+
+      if (!allowedRoles.includes(currentUser.role)) {
           return res.status(HTTP_STATUS.FORBIDDEN).json({
             error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
-            message: 'Your role in this coaching center has changed. Please re-login.'
+            message: `Access requires one of: ${allowedRoles.join(', ')}`
           });
-        }
-        req.coachingId = coachingId;
       }
 
       next();

@@ -176,6 +176,34 @@ const getTestResults = async (req, res) => {
   }
 };
 
+const getTeacherLeaderboard = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const coachingId = req.coachingId || req.user.coachingId;
+    const leaderboard = await testService.getTeacherLeaderboard(testId, coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ leaderboard });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch leaderboard',
+      message: error.message
+    });
+  }
+};
+
+const getStudentLeaderboard = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const { userId, coachingId } = req.user;
+    const leaderboard = await testService.getStudentLeaderboard(testId, userId, coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ leaderboard });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch leaderboard',
+      message: error.message
+    });
+  }
+};
+
 const deleteTest = async (req, res) => {
   try {
     const { testId } = req.params;
@@ -194,7 +222,7 @@ const deleteTest = async (req, res) => {
 const publishTest = async (req, res) => {
   try {
     const { testId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     const test = await testService.publishTest(testId, userId);
 
@@ -223,6 +251,8 @@ module.exports = {
   getMyResults,
   getStudentResults,
   getTestResults,
+  getTeacherLeaderboard,
+  getStudentLeaderboard,
   deleteTest,
   publishTest
 };

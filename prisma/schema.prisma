@@ -6,466 +6,359 @@ datasource db {
   provider = "postgresql"
 }
 
-enum CoachingRole {
+enum UserRole {
   OWNER
   TEACHER
   STUDENT
 }
 
-enum FeeStatus {
-  PAID
-  PARTIAL
-  PENDING
-}
-
-enum PaymentMethod {
-  CASH
-  BANK_TRANSFER
-  UPI
-  CHEQUE
-  OTHER
-}
-
-enum AttemptStatus {
-  STARTED
-  SUBMITTED
-}
-
 enum AttendanceStatus {
   PRESENT
   ABSENT
+  LATE
+}
+
+model CoachingCenter {
+  id            Int                    @id @default(autoincrement())
+  name          String
+  owner_user_id Int?
+  created_at    DateTime?              @default(now()) @db.Timestamp(6)
+
+  users                 User[]
+  subscriptions         CoachingSubscription[]
+  batches               Batch[]
+  subjects              Subject[]
+  tests                 Test[]
+  notices               Notice[]
+
+  @@map("coaching_centers")
+}
+
+model Plan {
+  id            Int                    @id @default(autoincrement())
+  name          String
+  price         Int
+  max_students  Int?
+  max_batches   Int?
+  max_teachers  Int?
+
+  subscriptions CoachingSubscription[]
+
+  @@map("plans")
+}
+
+model CoachingSubscription {
+  id                Int             @id @default(autoincrement())
+  coaching_center_id Int?
+  plan_id           Int?
+  start_date        DateTime?       @db.Date
+  end_date          DateTime?       @db.Date
+  status            String?
+
+  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  plan              Plan?           @relation(fields: [plan_id], references: [id])
+
+  @@map("coaching_subscriptions")
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  googleId  String?  @unique
-  password  String
-  firstName String
-  lastName  String
-  phone     String?
-  role      String   @default("USER")
-  isActive  Boolean  @default(true)
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                Int               @id @default(autoincrement())
+  name              String
+  email             String            @unique
+  role              UserRole
+  coaching_center_id Int?
+  is_active         Boolean?          @default(true)
+  created_at        DateTime?         @default(now()) @db.Timestamp(6)
+  last_login        DateTime?         @db.Timestamp(6)
 
-  coachingUsers  CoachingUser[]
-  ownedCentres   CoachingCentre[]
-  studentProfile StudentProfile[]
-  createdNotices Notice[]         @relation("UserToNotice")
-  assignedBatches BatchTeacher[]  @relation("UserToBatchTeacher")
-  refreshTokens  RefreshToken[]
-  auditLogs      AuditLog[]
-  studentBatches StudentBatch[]
-  attendanceMarked Attendance[]   @relation("UserToAttendance")
-  googleDriveConnections GoogleDriveConnection[]
-  uploadedDocuments TeacherDocument[] @relation("UserToTeacherDocument")
+  coaching_center   CoachingCenter?   @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  created_batches   Batch[]           @relation("BatchCreatedBy")
+  batch_subjects    BatchSubject[]    @relation("BatchSubjectTeacher")
+  batch_students    BatchStudent[]    @relation("BatchStudentUser")
+  schedules         BatchSchedule[]   @relation("BatchScheduleTeacher")
+  lectures          Lecture[]         @relation("LectureTeacher")
+  attendance        Attendance[]      @relation("AttendanceStudent")
+  created_tests     Test[]            @relation("TestCreatedBy")
+  attempts          TestAttempt[]     @relation("TestAttemptStudent")
+  fees              Fee[]             @relation("FeeStudent")
+  payments_recorded Payment[]         @relation("PaymentRecordedBy")
+  created_notices   Notice[]          @relation("NoticeCreatedBy")
+  documents         Document[]        @relation("DocumentUploadedBy")
 
-  @@index([email])
-  @@index([role])
-  @@index([isActive])
+  @@index([coaching_center_id], map: "idx_users_center")
   @@map("users")
 }
 
-model RefreshToken {
-  id        String   @id @default(uuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("refresh_tokens")
-}
-
-model CoachingCentre {
-  id          String    @id @default(uuid())
-  name        String
-  description String?
-  ownerId     String
-  isActive    Boolean   @default(true)
-  deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  owner           User             @relation(fields: [ownerId], references: [id])
-  coachingUsers   CoachingUser[]
-  studentProfiles StudentProfile[]
-  batches         Batch[]
-  fees            Fee[]
-  tests           Test[]
-  notices         Notice[]
-  studentBatches  StudentBatch[]
-  attendanceRecords Attendance[]
-  teacherDocuments TeacherDocument[]
-  googleDriveConnections GoogleDriveConnection[]
-
-  @@index([ownerId])
-  @@index([isActive])
-  @@map("coaching_centres")
-}
-
-model CoachingUser {
-  id         String       @id @default(uuid())
-  userId     String
-  coachingId String
-  role       CoachingRole
-  assignedBy String
-  assignedAt DateTime     @default(now())
-
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, coachingId])
-  @@index([userId, coachingId])
-  @@index([coachingId, role])
-  @@index([role])
-  @@map("coaching_users")
-}
-
 model Batch {
-  id          String    @id @default(uuid())
-  name        String
-  coachingId  String
-  description String?
-  isActive    Boolean   @default(true)
-  deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                Int               @id @default(autoincrement())
+  name              String
+  coaching_center_id Int?
+  created_by        Int?
+  created_at        DateTime?         @default(now()) @db.Timestamp(6)
 
-  coaching       CoachingCentre @relation(fields: [coachingId], references: [id])
-  batchTeachers  BatchTeacher[]
-  students       StudentProfile[]
-  tests          Test[]
-  notices        Notice[]
-  studentBatches StudentBatch[]
-  attendanceRecords Attendance[]
-  teacherDocuments TeacherDocument[]
-  testBatches    TestBatch[]  // Many-to-many with tests
+  coaching_center   CoachingCenter?   @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  creator           User?             @relation("BatchCreatedBy", fields: [created_by], references: [id])
+  batch_subjects    BatchSubject[]
+  batch_students    BatchStudent[]
+  schedules         BatchSchedule[]
+  lectures          Lecture[]
+  test_batches      TestBatch[]
+  attempts          TestAttempt[]
+  fees              Fee[]
+  notice_targets    NoticeTarget[]
+  documents         Document[]
 
-  @@index([coachingId, isActive])
-  @@index([isActive])
+  @@index([coaching_center_id], map: "idx_batches_center")
   @@map("batches")
 }
 
-model BatchTeacher {
-  id         String   @id @default(uuid())
-  teacherId  String
-  batchId    String
-  assignedBy String
-  assignedAt DateTime @default(now())
+model Subject {
+  id                Int               @id @default(autoincrement())
+  name              String
+  coaching_center_id Int?
 
-  teacher User  @relation(name: "UserToBatchTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
-  batch   Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  coaching_center   CoachingCenter?   @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  batch_subjects    BatchSubject[]
+  schedules         BatchSchedule[]
+  lectures          Lecture[]
+  tests             Test[]
+  documents         Document[]
 
-  @@unique([teacherId, batchId])
-  @@index([batchId])
-  @@index([teacherId])
-  @@map("batch_teachers")
+  @@index([coaching_center_id], map: "idx_subjects_center")
+  @@map("subjects")
 }
 
-model StudentProfile {
-  id            String    @id @default(uuid())
-  userId        String
-  coachingId    String
-  batchId       String?
-  parentName    String?
-  parentPhone   String?
-  parentEmail   String?
-  gradeLevel    String?
-  admissionDate DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+model BatchSubject {
+  id         Int      @id @default(autoincrement())
+  batch_id   Int?
+  subject_id Int?
+  teacher_id Int?
 
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-  batch    Batch?         @relation(fields: [batchId], references: [id], onDelete: SetNull)
-  fees     Fee[]
-  results  Result[]
-  attempts TestAttempt[]
-  attendance Attendance[]
+  batch      Batch?   @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject    Subject? @relation(fields: [subject_id], references: [id], onDelete: Cascade)
+  teacher    User?    @relation("BatchSubjectTeacher", fields: [teacher_id], references: [id])
 
-  @@unique([userId, coachingId])
-  @@index([userId])
-  @@index([coachingId, batchId])
-  @@index([batchId])
-  @@map("student_profiles")
+  @@map("batch_subjects")
 }
 
-model Fee {
-  id         String    @id @default(uuid())
-  studentId  String
-  coachingId String
-  amount     Float
-  paidAmount Float     @default(0)
-  dueDate    DateTime?
-  status     FeeStatus @default(PENDING)
-  notes      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+model BatchStudent {
+  id         Int       @id @default(autoincrement())
+  batch_id   Int?
+  student_id Int?
+  joined_at  DateTime? @default(now()) @db.Timestamp(6)
 
-  student      StudentProfile   @relation(fields: [studentId], references: [id])
-  coaching     CoachingCentre   @relation(fields: [coachingId], references: [id])
-  transactions FeeTransaction[]
+  batch      Batch?    @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  student    User?     @relation("BatchStudentUser", fields: [student_id], references: [id])
 
-  @@index([studentId, coachingId])
-  @@index([coachingId, status])
-  @@index([status])
-  @@map("fees")
+  @@index([batch_id], map: "idx_batch_students_batch")
+  @@map("batch_students")
 }
 
-model FeeTransaction {
-  id            String        @id @default(uuid())
-  feeId         String
-  amount        Float
-  paymentMethod PaymentMethod @default(CASH)
-  referenceId   String?
-  notes         String?
-  recordedBy    String
-  createdAt     DateTime      @default(now())
+model BatchSchedule {
+  id          Int       @id @default(autoincrement())
+  batch_id    Int?
+  subject_id  Int?
+  teacher_id  Int?
+  day_of_week Int?
+  start_time  DateTime? @db.Time(6)
+  end_time    DateTime? @db.Time(6)
 
-  fee Fee @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  batch       Batch?    @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject     Subject?  @relation(fields: [subject_id], references: [id])
+  teacher     User?     @relation("BatchScheduleTeacher", fields: [teacher_id], references: [id])
 
-  @@index([feeId])
-  @@map("fee_transactions")
+  @@map("batch_schedule")
+}
+
+model Lecture {
+  id           Int       @id @default(autoincrement())
+  batch_id     Int?
+  subject_id   Int?
+  teacher_id   Int?
+  lecture_date DateTime? @db.Date
+  start_time   DateTime? @db.Time(6)
+  end_time     DateTime? @db.Time(6)
+  topic        String?
+
+  batch        Batch?    @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject      Subject?  @relation(fields: [subject_id], references: [id])
+  teacher      User?     @relation("LectureTeacher", fields: [teacher_id], references: [id])
+  attendance   Attendance[]
+  documents    Document[]
+
+  @@map("lectures")
+}
+
+model Attendance {
+  id         Int               @id @default(autoincrement())
+  lecture_id Int?
+  student_id Int?
+  status     AttendanceStatus?
+  marked_at  DateTime?         @default(now()) @db.Timestamp(6)
+
+  lecture    Lecture?          @relation(fields: [lecture_id], references: [id], onDelete: Cascade)
+  student    User?             @relation("AttendanceStudent", fields: [student_id], references: [id])
+
+  @@index([lecture_id], map: "idx_attendance_lecture")
+  @@map("attendance")
 }
 
 model Test {
-  id        String    @id @default(uuid())
-  title     String
-  coachingId String
-  batchId   String?   // Made optional - using TestBatch join table instead
-  duration  Int
-  isActive  Boolean   @default(true)
-  isPublished Boolean @default(false)
-  deletedAt DateTime?
-  startDate DateTime
-  endDate   DateTime
-  maxScore  Float
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                Int          @id @default(autoincrement())
+  title             String?
+  subject_id        Int?
+  coaching_center_id Int?
+  duration_minutes  Int?
+  start_time        DateTime?    @db.Timestamp(6)
+  end_time          DateTime?    @db.Timestamp(6)
+  created_by        Int?
+  results_published Boolean?     @default(false)
+  created_at        DateTime?    @default(now()) @db.Timestamp(6)
 
-  coaching  CoachingCentre @relation(fields: [coachingId], references: [id])
-  batch     Batch?         @relation(fields: [batchId], references: [id])
-  questions Question[]
-  results   Result[]
-  attempts  TestAttempt[]
-  testBatches TestBatch[]  // Many-to-many with batches
+  subject           Subject?     @relation(fields: [subject_id], references: [id])
+  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
+  creator           User?        @relation("TestCreatedBy", fields: [created_by], references: [id])
+  test_batches      TestBatch[]
+  questions         Question[]
+  attempts          TestAttempt[]
+  documents         Document[]
 
-  @@index([coachingId, isActive])
-  @@index([batchId])
-  @@index([startDate, endDate])
+  @@index([subject_id], map: "idx_tests_subject")
   @@map("tests")
 }
 
 model TestBatch {
-  id         String   @id @default(uuid())
-  testId     String
-  batchId    String
-  createdAt  DateTime @default(now())
+  id      Int    @id @default(autoincrement())
+  test_id Int?
+  batch_id Int?
 
-  test  Test  @relation(fields: [testId], references: [id], onDelete: Cascade)
-  batch Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  test    Test?  @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  batch   Batch? @relation(fields: [batch_id], references: [id], onDelete: Cascade)
 
-  @@unique([testId, batchId])
-  @@index([testId])
-  @@index([batchId])
   @@map("test_batches")
 }
 
-model TestAttempt {
-  id          String        @id @default(uuid())
-  testId      String
-  studentId   String
-  status      AttemptStatus @default(STARTED)
-  startedAt   DateTime      @default(now())
-  submittedAt DateTime?
-
-  test    Test           @relation(fields: [testId], references: [id], onDelete: Cascade)
-  student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
-
-  @@unique([testId, studentId])
-  @@index([studentId])
-  @@index([testId, studentId])
-  @@index([status])
-  @@map("test_attempts")
-}
-
 model Question {
-  id              String   @id @default(uuid())
-  testId          String
-  questionText    String
-  optionA         String
-  optionB         String
-  optionC         String
-  optionD         String
-  correctAnswer   String
-  marks           Float    @default(1)
-  durationSeconds Int?     // Per-question timer in seconds
-  createdAt       DateTime @default(now())
+  id             Int       @id @default(autoincrement())
+  test_id        Int?
+  question       String
+  option_a       String?
+  option_b       String?
+  option_c       String?
+  option_d       String?
+  correct_option String?   @db.Char(1)
+  marks          Int?      @default(1)
 
-  test Test @relation(fields: [testId], references: [id])
+  test           Test?     @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  answers        TestAnswer[]
 
-  @@index([testId])
   @@map("questions")
 }
 
-model Result {
-  id          String   @id @default(uuid())
-  testId      String
-  studentId   String
-  score       Float
-  totalMarks  Float
-  percentage  Float
-  passed      Boolean
-  submittedAt DateTime @default(now())
+model TestAttempt {
+  id           Int        @id @default(autoincrement())
+  test_id      Int?
+  student_id   Int?
+  batch_id     Int?
+  score        Int?
+  submitted_at DateTime?  @default(now()) @db.Timestamp(6)
 
-  test    Test           @relation(fields: [testId], references: [id])
-  student StudentProfile @relation(fields: [studentId], references: [id])
+  test         Test?      @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  student      User?      @relation("TestAttemptStudent", fields: [student_id], references: [id])
+  batch        Batch?     @relation(fields: [batch_id], references: [id])
+  answers      TestAnswer[]
 
-  @@unique([testId, studentId])
-  @@index([studentId])
-  @@index([testId])
-  @@index([passed])
-  @@map("results")
+  @@unique([test_id, student_id])
+  @@index([test_id, score(sort: Desc)], map: "idx_test_score")
+  @@map("test_attempts")
+}
+
+model TestAnswer {
+  id              Int         @id @default(autoincrement())
+  attempt_id      Int?
+  question_id     Int?
+  selected_option String?     @db.Char(1)
+  is_correct      Boolean?
+  marks_awarded   Int?
+
+  attempt         TestAttempt? @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  question        Question?    @relation(fields: [question_id], references: [id])
+
+  @@index([attempt_id], map: "idx_test_answers_attempt")
+  @@map("test_answers")
+}
+
+model Fee {
+  id         Int       @id @default(autoincrement())
+  student_id Int?
+  batch_id   Int?
+  total_fee  Int?
+  due_date   DateTime? @db.Date
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+
+  student    User?     @relation("FeeStudent", fields: [student_id], references: [id])
+  batch      Batch?    @relation(fields: [batch_id], references: [id])
+  payments   Payment[]
+
+  @@map("fees")
+}
+
+model Payment {
+  id          Int       @id @default(autoincrement())
+  fee_id      Int?
+  amount      Int?
+  paid_at     DateTime? @default(now()) @db.Timestamp(6)
+  recorded_by Int?
+
+  fee         Fee?      @relation(fields: [fee_id], references: [id], onDelete: Cascade)
+  recorder    User?     @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
+
+  @@index([fee_id], map: "idx_payments_fee")
+  @@map("payments")
 }
 
 model Notice {
-  id              String    @id @default(uuid())
-  coachingId      String
-  batchId         String?
-  title           String
-  content         String
-  createdBy       String
-  createdByRole   CoachingRole
-  expiresAt       DateTime?
-  createdAt       DateTime  @default(now())
+  id                Int       @id @default(autoincrement())
+  title             String?
+  content           String?
+  coaching_center_id Int?
+  created_by        Int?
+  created_at        DateTime? @default(now()) @db.Timestamp(6)
 
-  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-  batch    Batch?         @relation(fields: [batchId], references: [id], onDelete: SetNull)
-  creator  User           @relation(name: "UserToNotice", fields: [createdBy], references: [id], onDelete: Cascade)
+  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
+  creator           User?           @relation("NoticeCreatedBy", fields: [created_by], references: [id])
+  targets           NoticeTarget[]
 
-  @@index([coachingId])
-  @@index([batchId])
-  @@index([createdBy])
   @@map("notices")
 }
 
-model Attendance {
-  id         String           @id @default(uuid())
-  coachingId String
-  batchId    String
-  studentId  String
-  classDate  DateTime
-  status     AttendanceStatus @default(ABSENT)
-  markedBy   String
-  remarks    String?
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+model NoticeTarget {
+  id        Int     @id @default(autoincrement())
+  notice_id Int?
+  batch_id  Int?
 
-  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-  batch    Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  student  StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  marker   User           @relation("UserToAttendance", fields: [markedBy], references: [id], onDelete: Cascade)
+  notice    Notice? @relation(fields: [notice_id], references: [id], onDelete: Cascade)
+  batch     Batch?  @relation(fields: [batch_id], references: [id], onDelete: Cascade)
 
-  @@unique([studentId, batchId, classDate])
-  @@index([coachingId, classDate])
-  @@index([batchId, classDate])
-  @@index([studentId, classDate])
-  @@index([markedBy])
-  @@map("attendance")
+  @@map("notice_targets")
 }
 
-model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String?
-  action     String
-  entityType String
-  entityId   String?
-  metadata   Json?
-  ipAddress  String?
-  createdAt  DateTime @default(now())
+model Document {
+  id           Int       @id @default(autoincrement())
+  title        String?
+  drive_file_id String?
+  batch_id     Int?
+  subject_id   Int?
+  lecture_id   Int?
+  test_id      Int?
+  uploaded_by  Int?
+  uploaded_at  DateTime? @default(now()) @db.Timestamp(6)
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  batch        Batch?    @relation(fields: [batch_id], references: [id])
+  subject      Subject?  @relation(fields: [subject_id], references: [id])
+  lecture      Lecture?  @relation(fields: [lecture_id], references: [id])
+  test         Test?     @relation(fields: [test_id], references: [id])
+  uploader     User?     @relation("DocumentUploadedBy", fields: [uploaded_by], references: [id])
 
-  @@index([userId, createdAt])
-  @@index([entityType, entityId])
-  @@index([createdAt])
-  @@map("audit_logs")
-}
-
-model StudentBatch {
-  id             String   @id @default(uuid())
-  studentId      String
-  batchId        String
-  coachingId     String
-  enrollmentDate DateTime @default(now())
-  isActive       Boolean  @default(true)
-  deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  student   User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  batch     Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  coaching  CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-
-  @@unique([studentId, batchId])
-  @@index([studentId])
-  @@index([batchId])
-  @@index([coachingId, isActive])
-  @@map("student_batches")
-}
-
-model GoogleDriveConnection {
-  id                    String   @id @default(uuid())
-  userId                String
-  coachingId            String
-  googleAccountEmail    String
-  encryptedRefreshToken String
-  scope                 String?
-  connectedAt           DateTime @default(now())
-  revokedAt             DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, coachingId])
-  @@index([coachingId])
-  @@index([userId])
-  @@map("google_drive_connections")
-}
-
-model TeacherDocument {
-  id                 String    @id @default(uuid())
-  coachingId         String
-  batchId            String
-  uploadedBy         String
-  title              String
-  description        String?
-  fileName           String
-  fileSize           Int
-  mimeType           String
-  driveFileId        String    @unique
-  driveWebViewLink   String?
-  driveWebContentLink String?
-  thumbnailLink      String?
-  isSharedWithStudents Boolean @default(false)
-  isActive           Boolean   @default(true)
-  deletedAt          DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  coaching CoachingCentre @relation(fields: [coachingId], references: [id], onDelete: Cascade)
-  batch    Batch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  uploader User           @relation("UserToTeacherDocument", fields: [uploadedBy], references: [id], onDelete: Cascade)
-
-  @@index([uploadedBy, isActive])
-  @@index([batchId, isSharedWithStudents, isActive])
-  @@index([coachingId, createdAt])
-  @@map("teacher_documents")
+  @@map("documents")
 }
