@@ -3,7 +3,7 @@ const { Readable } = require('stream');
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
-const { getDriveClientForTeacher, getDeveloperDriveClient, setDriveFilePermissions } = require('./googleDriveService');
+const { getDeveloperDriveClient, setDriveFilePermissions } = require('./googleDriveService');
 
 const parseSharedBoolean = (value) => {
   if (typeof value === 'boolean') return value;
@@ -11,15 +11,27 @@ const parseSharedBoolean = (value) => {
   return false;
 };
 
+const mapDocumentForClient = (doc, extras = {}) => ({
+  id: doc.id,
+  title: doc.title,
+  description: extras.description || null,
+  fileName: extras.fileName || doc.title || 'Document',
+  fileSize: extras.fileSize || 0,
+  mimeType: extras.mimeType || null,
+  driveFileId: doc.drive_file_id,
+  isSharedWithStudents: extras.isSharedWithStudents ?? true,
+  createdAt: doc.uploaded_at,
+  uploadedBy: doc.uploaded_by,
+  batchId: doc.batch_id,
+  batch: doc.batch ? { id: doc.batch.id, name: doc.batch.name } : null
+});
+
 const assertTeacherAssignedToBatch = async ({ userId, batchId, coachingId }) => {
-  const assigned = await prisma.batchTeacher.findFirst({
+  const assigned = await prisma.batchSubject.findFirst({
     where: {
-      teacherId: userId,
-      batchId,
-      batch: {
-        coachingId,
-        isActive: true
-      }
+      teacher_id: Number(userId),
+      batch_id: Number(batchId),
+      batch: { coaching_center_id: Number(coachingId) }
     }
   });
 
@@ -28,16 +40,13 @@ const assertTeacherAssignedToBatch = async ({ userId, batchId, coachingId }) => 
   }
 };
 
-const uploadToDrive = async ({ userId, coachingId, file }) => {
-  // Use developer's centralized Google Drive account
+const uploadToDrive = async ({ userId, file }) => {
   const drive = await getDeveloperDriveClient();
 
-  // Upload file to Developer's Drive
   const created = await drive.files.create({
     requestBody: {
       name: file.originalname,
       mimeType: file.mimetype,
-      // Store metadata to track which teacher/coaching uploaded it
       description: `Uploaded to Coaching SaaS by ${userId}`
     },
     media: {
@@ -47,12 +56,7 @@ const uploadToDrive = async ({ userId, coachingId, file }) => {
     fields: 'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink,owners'
   });
 
-  const fileId = created.data.id;
-  console.log(`[Drive Upload] File uploaded to developer drive: fileId=${fileId}, name=${file.originalname}, size=${created.data.size}`);
-
-  // Set file permission to "Anyone with the link" (Viewer only - read-only access)
-  await setDriveFilePermissions(drive, fileId);
-
+  await setDriveFilePermissions(drive, created.data.id);
   return created.data;
 };
 
@@ -65,35 +69,18 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
     throw new Error('File is required');
   }
 
-  // DEBUG: Log payload and isSharedWithStudents
-  console.log('[Service] uploadTeacherDocument PARSING:');
-  console.log('  payload:', JSON.stringify(payload, null, 2));
-  console.log('  payload.isSharedWithStudents:', payload.isSharedWithStudents, '(type:', typeof payload.isSharedWithStudents, ')');
+  const { batchId, title } = payload;
+  if (!batchId) throw new Error('batchId is required');
 
-  const { batchId, title, description } = payload;
   await assertTeacherAssignedToBatch({ userId, batchId, coachingId });
+  const driveMeta = await uploadToDrive({ userId, file });
 
-  const driveMeta = await uploadToDrive({ userId, coachingId, file });
-
-  const isSharedValue = parseSharedBoolean(payload.isSharedWithStudents);
-  console.log('[Service] uploadTeacherDocument AFTER PARSE:');
-  console.log('  isSharedWithStudents:', isSharedValue, '(type:', typeof isSharedValue, ')');
-
-  const document = await prisma.teacherDocument.create({
+  const document = await prisma.document.create({
     data: {
-      coachingId,
-      batchId,
-      uploadedBy: userId,
-      title,
-      description: description || null,
-      fileName: driveMeta.name || file.originalname,
-      fileSize: Number(driveMeta.size || file.size || 0),
-      mimeType: driveMeta.mimeType || file.mimetype,
-      driveFileId: driveMeta.id,
-      driveWebViewLink: driveMeta.webViewLink || null,
-      driveWebContentLink: null,  // Always null for view-only access
-      thumbnailLink: driveMeta.thumbnailLink || null,
-      isSharedWithStudents: isSharedValue
+      title: title || driveMeta.name || file.originalname,
+      drive_file_id: driveMeta.id,
+      batch_id: Number(batchId),
+      uploaded_by: Number(userId)
     },
     include: {
       batch: { select: { id: true, name: true } }
@@ -103,36 +90,73 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
   await audit({
     userId,
     action: 'UPLOAD_TEACHER_DOCUMENT',
-    entityType: 'TEACHER_DOCUMENT',
+    entityType: 'DOCUMENT',
     entityId: document.id,
-    metadata: { batchId, driveFileId: driveMeta.id }
+    metadata: { batchId: Number(batchId), driveFileId: driveMeta.id }
   });
 
-  return document;
+  return mapDocumentForClient(document, {
+    description: payload.description || null,
+    fileName: driveMeta.name || file.originalname,
+    fileSize: Number(driveMeta.size || file.size || 0),
+    mimeType: driveMeta.mimeType || file.mimetype,
+    isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
+  });
 };
 
 const getMyTeacherDocuments = async ({ userId, coachingId }) => {
-  return prisma.teacherDocument.findMany({
+  const documents = await prisma.document.findMany({
     where: {
-      coachingId,
-      uploadedBy: userId,
-      isActive: true,
-      deletedAt: null
+      uploaded_by: Number(userId),
+      batch: { coaching_center_id: Number(coachingId) }
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { uploaded_at: 'desc' },
     include: {
       batch: { select: { id: true, name: true } }
     }
   });
+
+  return documents.map((doc) => mapDocumentForClient(doc));
 };
 
 const updateTeacherDocumentMeta = async ({ userId, coachingId, documentId, payload }) => {
-  const existing = await prisma.teacherDocument.findFirst({
+  const existing = await prisma.document.findFirst({
     where: {
-      id: documentId,
-      coachingId,
-      isActive: true,
-      deletedAt: null
+      id: Number(documentId),
+      uploaded_by: Number(userId),
+      batch: { coaching_center_id: Number(coachingId) }
+    },
+    include: { batch: { select: { id: true, name: true } } }
+  });
+
+  if (!existing) {
+    throw new Error('Document not found');
+  }
+
+  const data = {};
+  if (typeof payload.title === 'string' && payload.title.trim()) {
+    data.title = payload.title.trim();
+  }
+
+  const updated = await prisma.document.update({
+    where: { id: Number(documentId) },
+    data,
+    include: { batch: { select: { id: true, name: true } } }
+  });
+
+  await audit({ userId, action: 'UPDATE_TEACHER_DOCUMENT', entityType: 'DOCUMENT', entityId: updated.id });
+  return mapDocumentForClient(updated, {
+    description: payload.description || null,
+    isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
+  });
+};
+
+const deleteTeacherDocument = async ({ userId, coachingId, documentId }) => {
+  const existing = await prisma.document.findFirst({
+    where: {
+      id: Number(documentId),
+      uploaded_by: Number(userId),
+      batch: { coaching_center_id: Number(coachingId) }
     }
   });
 
@@ -140,151 +164,34 @@ const updateTeacherDocumentMeta = async ({ userId, coachingId, documentId, paylo
     throw new Error('Document not found');
   }
 
-  if (existing.uploadedBy !== userId) {
-    throw new Error('You are not authorised to update this document');
-  }
+  await prisma.document.delete({ where: { id: Number(documentId) } });
+  await audit({ userId, action: 'DELETE_TEACHER_DOCUMENT', entityType: 'DOCUMENT', entityId: Number(documentId) });
+  return { message: 'Document deleted successfully' };
+};
 
-  const data = {};
-  if (typeof payload.title === 'string' && payload.title.trim()) data.title = payload.title.trim();
-  if (Object.prototype.hasOwnProperty.call(payload, 'description')) {
-    data.description = payload.description ? String(payload.description).trim() : null;
-  }
-  if (Object.prototype.hasOwnProperty.call(payload, 'isSharedWithStudents')) {
-    data.isSharedWithStudents = parseSharedBoolean(payload.isSharedWithStudents);
-  }
+const getStudentDocumentFeed = async ({ userId, coachingId }) => {
+  const studentBatchRows = await prisma.batchStudent.findMany({
+    where: {
+      student_id: Number(userId),
+      batch: { coaching_center_id: Number(coachingId) }
+    },
+    select: { batch_id: true }
+  });
 
-  const updated = await prisma.teacherDocument.update({
-    where: { id: documentId },
-    data,
+  const batchIds = studentBatchRows.map((row) => row.batch_id).filter(Boolean);
+  if (batchIds.length === 0) return [];
+
+  const documents = await prisma.document.findMany({
+    where: {
+      batch_id: { in: batchIds }
+    },
+    orderBy: { uploaded_at: 'desc' },
     include: {
       batch: { select: { id: true, name: true } }
     }
   });
 
-  await audit({ userId, action: 'UPDATE_TEACHER_DOCUMENT', entityType: 'TEACHER_DOCUMENT', entityId: updated.id });
-  return updated;
-};
-
-const deleteTeacherDocument = async ({ userId, coachingId, documentId }) => {
-  const existing = await prisma.teacherDocument.findFirst({
-    where: {
-      id: documentId,
-      coachingId,
-      isActive: true,
-      deletedAt: null
-    }
-  });
-
-  if (!existing) {
-    throw new Error('Document not found');
-  }
-
-  if (existing.uploadedBy !== userId) {
-    throw new Error('You are not authorised to delete this document');
-  }
-
-  await prisma.teacherDocument.update({
-    where: { id: documentId },
-    data: {
-      isActive: false,
-      deletedAt: new Date()
-    }
-  });
-
-  await audit({ userId, action: 'DELETE_TEACHER_DOCUMENT', entityType: 'TEACHER_DOCUMENT', entityId: documentId });
-  return { message: 'Document deleted successfully' };
-};
-
-const resolveStudentBatchId = async ({ userId, coachingId, studentProfile }) => {
-  // First try the profile's batchId
-  if (studentProfile && studentProfile.batchId) {
-    console.log('[Service] Using batchId from StudentProfile:', studentProfile.batchId);
-    return studentProfile.batchId;
-  }
-
-  // Fallback: query StudentBatch for active enrollment
-  console.log('[Service] StudentProfile.batchId is null, querying StudentBatch table...');
-  const studentBatch = await prisma.studentBatch.findFirst({
-    where: {
-      studentId: userId,
-      coachingId,
-      isActive: true,
-      deletedAt: null
-    },
-    orderBy: { enrollmentDate: 'desc' }
-  });
-
-  if (studentBatch) {
-    console.log('[Service] Found active StudentBatch:', studentBatch.batchId);
-    return studentBatch.batchId;
-  }
-
-  console.log('[Service] No active StudentBatch found for student');
-  return null;
-};
-
-const getStudentDocumentFeed = async ({ userId, coachingId }) => {
-  // DEBUG: Log student fetch
-  console.log('[Service] getStudentDocumentFeed:');
-  console.log('  userId:', userId);
-  console.log('  coachingId:', coachingId);
-
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId }
-  });
-
-  console.log('[Service] Student profile found:', studentProfile ? `YES (batchId: ${studentProfile.batchId})` : 'NO');
-
-  if (!studentProfile) {
-    console.log('[Service] No student profile - returning empty');
-    return [];
-  }
-
-  // Resolve batchId with fallback to StudentBatch table
-  const batchId = await resolveStudentBatchId({ userId, coachingId, studentProfile });
-
-  if (!batchId) {
-    console.log('[Service] No batch found (profile or StudentBatch) - returning empty');
-    return [];
-  }
-
-  // DEBUG: Log query
-  console.log('[Service] Querying documents WHERE:');
-  console.log('  coachingId:', coachingId);
-  console.log('  batchId:', batchId);
-  console.log('  isSharedWithStudents: true');
-  console.log('  isActive: true');
-  console.log('  deletedAt: null');
-
-  const documents = await prisma.teacherDocument.findMany({
-    where: {
-      coachingId,
-      batchId,
-      isSharedWithStudents: true,
-      isActive: true,
-      deletedAt: null
-    },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      fileName: true,
-      fileSize: true,
-      mimeType: true,
-      createdAt: true,
-      batch: { select: { id: true, name: true } }
-    }
-  });
-
-  console.log('[Service] Documents found:', documents.length);
-  if (documents.length > 0) {
-    console.log('[Service] Document titles:', documents.map(d => ({ id: d.id, title: d.title })));
-  } else {
-    console.log('[Service] No documents found in batch:', batchId);
-  }
-
-  return documents;
+  return documents.map((doc) => mapDocumentForClient(doc, { isSharedWithStudents: true }));
 };
 
 const createPreviewUrlToken = ({ userId, coachingId, role, documentId }) => {
@@ -299,41 +206,30 @@ const createPreviewUrlToken = ({ userId, coachingId, role, documentId }) => {
 };
 
 const validatePreviewAccess = async ({ userId, coachingId, role, documentId }) => {
-  const doc = await prisma.teacherDocument.findFirst({
+  const doc = await prisma.document.findFirst({
     where: {
-      id: documentId,
-      coachingId,
-      isActive: true,
-      deletedAt: null
+      id: Number(documentId),
+      batch: { coaching_center_id: Number(coachingId) }
     }
   });
 
-  if (!doc) {
-    throw new Error('Document not found');
-  }
+  if (!doc) throw new Error('Document not found');
 
-  if (role === ROLES.OWNER) {
-    return doc;
-  }
+  if (role === ROLES.OWNER) return doc;
 
   if (role === ROLES.TEACHER) {
-    if (doc.uploadedBy !== userId) {
+    if (doc.uploaded_by !== Number(userId)) {
       throw new Error('You are not authorised to preview this document');
     }
     return doc;
   }
 
   if (role === ROLES.STUDENT) {
-    const studentProfile = await prisma.studentProfile.findFirst({
-      where: { userId, coachingId }
+    const membership = await prisma.batchStudent.findFirst({
+      where: { student_id: Number(userId), batch_id: doc.batch_id }
     });
 
-    const canAccess =
-      studentProfile &&
-      studentProfile.batchId === doc.batchId &&
-      doc.isSharedWithStudents;
-
-    if (!canAccess) {
+    if (!membership) {
       throw new Error('You are not authorised to preview this document');
     }
 
@@ -361,52 +257,26 @@ const getPreviewStreamByToken = async (token) => {
   const { userId, coachingId, role, documentId } = decoded;
 
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-  
-  try {
-    // Verify teacher's Drive connection is still active
-    const driveConnection = await prisma.googleDriveConnection.findFirst({
-      where: {
-        userId: doc.uploadedBy,
-        coachingId,
-        revokedAt: null
-      }
-    });
+  const drive = await getDeveloperDriveClient();
 
-    if (!driveConnection) {
-      throw new Error('Teacher has not connected Google Drive or connection has been revoked');
-    }
+  const metadataResp = await drive.files.get({
+    fileId: doc.drive_file_id,
+    fields: 'name,mimeType'
+  });
 
-    const { drive } = await getDriveClientForTeacher({ userId: doc.uploadedBy, coachingId });
+  const fileResp = await drive.files.get(
+    {
+      fileId: doc.drive_file_id,
+      alt: 'media'
+    },
+    { responseType: 'stream' }
+  );
 
-    console.log(`[Preview] Loading fileId=${doc.driveFileId} for student`);
-    
-    const response = await drive.files.get(
-      {
-        fileId: doc.driveFileId,
-        alt: 'media'
-      },
-      { responseType: 'stream' }
-    );
-
-    console.log(`[Preview] Stream opened for fileId=${doc.driveFileId}`);
-    return {
-      stream: response.data,
-      mimeType: doc.mimeType,
-      fileName: doc.fileName
-    };
-  } catch (error) {
-    console.error(`[Preview Error] fileId=${doc.driveFileId}, teacher=${doc.uploadedBy}, error:`, error.message);
-    
-    if (error.message.includes('404') || error.message.includes('not found')) {
-      throw new Error(`File not found in Google Drive (FileId: ${doc.driveFileId}). Teacher may have deleted it.`);
-    }
-    
-    if (error.message.includes('permission') || error.message.includes('Forbidden') || error.message.includes('403')) {
-      throw new Error('Access denied. Teacher needs to reconnect Google Drive.');
-    }
-    
-    throw error;
-  }
+  return {
+    stream: fileResp.data,
+    mimeType: metadataResp.data.mimeType || 'application/octet-stream',
+    fileName: metadataResp.data.name || doc.title || 'document'
+  };
 };
 
 module.exports = {

@@ -1,73 +1,122 @@
 const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
 
-const mapTestForClient = (test) => ({
-  id: test.id,
-  title: test.title,
-  coachingId: test.coaching_center_id,
-  duration: test.duration_minutes,
-  startDate: test.start_time,
-  endDate: test.end_time,
-  isPublished: test.results_published,
-  createdAt: test.created_at,
-  coaching: test.coaching_center
-    ? { id: test.coaching_center.id, name: test.coaching_center.name }
-    : null
+const toNumber = (value, name) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a valid positive number`);
+  }
+  return parsed;
+};
+
+const mapQuestionForClient = (question) => ({
+  id: question.id,
+  testId: question.test_id,
+  questionText: question.question,
+  optionA: question.option_a,
+  optionB: question.option_b,
+  optionC: question.option_c,
+  optionD: question.option_d,
+  correctAnswer: question.correct_option,
+  marks: question.marks,
+  durationSeconds: null
 });
 
-const createTest = async (testData, requesterId) => {
-  const { title, coachingId, batchIds, duration, startDate, endDate, maxScore } = testData;
-  
-  // Create test with optional legacy batchId for backwards compatibility
-  const test = await prisma.test.create({
-    data: { 
-      title, 
-      coachingId, 
-      batchId: Array.isArray(batchIds) && batchIds.length > 0 ? batchIds[0] : null,
-      duration, 
-      startDate: new Date(startDate), 
-      endDate: new Date(endDate), 
-      maxScore,
-      isPublished: false
-    }
+const mapTestForClient = (test) => {
+  const maxScore = Array.isArray(test.questions)
+    ? test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0)
+    : 0;
+
+  return {
+    id: test.id,
+    title: test.title,
+    coachingId: test.coaching_center_id,
+    batchId: test.test_batches?.[0]?.batch_id || null,
+    batchIds: (test.test_batches || []).map((tb) => tb.batch_id).filter(Boolean),
+    duration: test.duration_minutes,
+    startDate: test.start_time,
+    endDate: test.end_time,
+    maxScore,
+    isPublished: Boolean(test.results_published),
+    createdAt: test.created_at,
+    coaching: test.coaching_center
+      ? { id: test.coaching_center.id, name: test.coaching_center.name }
+      : null,
+    testBatches: (test.test_batches || []).map((tb) => ({
+      id: tb.id,
+      batchId: tb.batch_id,
+      batch: tb.batch ? { id: tb.batch.id, name: tb.batch.name } : null
+    }))
+  };
+};
+
+const resolveStudentBatchIds = async (userId, coachingId) => {
+  const memberships = await prisma.batchStudent.findMany({
+    where: {
+      student_id: Number(userId),
+      batch: { coaching_center_id: Number(coachingId) }
+    },
+    select: { batch_id: true }
   });
 
-  // Create TestBatch entries for multi-batch support
-  if (Array.isArray(batchIds) && batchIds.length > 0) {
-    await prisma.testBatch.createMany({
-      data: batchIds.map(batchId => ({
-        testId: test.id,
-        batchId
-      }))
-    });
+  return memberships.map((m) => m.batch_id).filter(Boolean);
+};
+
+const createTest = async (testData, requesterId) => {
+  const { title, coachingId, batchIds, duration, startDate, endDate } = testData;
+
+  const numericCoachingId = toNumber(coachingId, 'coachingId');
+  const uniqueBatchIds = [...new Set((Array.isArray(batchIds) ? batchIds : []).map((id) => Number(id)).filter(Boolean))];
+  if (uniqueBatchIds.length === 0) {
+    throw new Error('At least one batch must be selected');
   }
 
-  await audit({ userId: requesterId, action: 'CREATE_TEST', entityType: 'TEST', entityId: test.id });
-  return test;
+  const [created] = await prisma.$transaction(async (tx) => {
+    const test = await tx.test.create({
+      data: {
+        title: String(title || '').trim(),
+        coaching_center_id: numericCoachingId,
+        duration_minutes: Number(duration),
+        start_time: new Date(startDate),
+        end_time: new Date(endDate),
+        created_by: requesterId,
+        results_published: false
+      }
+    });
+
+    await tx.testBatch.createMany({
+      data: uniqueBatchIds.map((batchId) => ({ test_id: test.id, batch_id: batchId }))
+    });
+
+    return [test];
+  });
+
+  await audit({ userId: requesterId, action: 'CREATE_TEST', entityType: 'TEST', entityId: created.id });
+
+  return getTestById(created.id);
 };
 
 const getTestById = async (testId) => {
-  const test = await prisma.test.findFirst({
-    where: { id: testId, isActive: true },
+  const test = await prisma.test.findUnique({
+    where: { id: Number(testId) },
     include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      testBatches: {
-        include: {
-          batch: { select: { id: true, name: true } }
-        }
-      }
+      coaching_center: { select: { id: true, name: true } },
+      test_batches: { include: { batch: { select: { id: true, name: true } } } },
+      questions: true
     }
   });
+
   if (!test) throw new Error('Test not found');
-  return test;
+  return mapTestForClient(test);
 };
 
 const getTestsByCoaching = async (coachingId) => {
   const tests = await prisma.test.findMany({
     where: { coaching_center_id: Number(coachingId) },
     include: {
-      coaching_center: { select: { id: true, name: true } }
+      coaching_center: { select: { id: true, name: true } },
+      test_batches: true,
+      questions: true
     },
     orderBy: { start_time: 'asc' }
   });
@@ -76,414 +125,339 @@ const getTestsByCoaching = async (coachingId) => {
 };
 
 const getTestsByBatch = async (batchId) => {
-  const testBatchRows = await prisma.testBatch.findMany({
+  const rows = await prisma.testBatch.findMany({
     where: { batch_id: Number(batchId) },
     include: {
       test: {
         include: {
-          coaching_center: { select: { id: true, name: true } }
+          coaching_center: { select: { id: true, name: true } },
+          test_batches: true,
+          questions: true
         }
       }
     }
   });
 
-  return testBatchRows
-    .map((row) => row.test)
-    .filter(Boolean)
-    .map(mapTestForClient);
+  return rows.map((row) => mapTestForClient(row.test));
 };
 
 const getMyUpcomingTests = async (userId, coachingId) => {
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId }
-  });
+  const batchIds = await resolveStudentBatchIds(userId, coachingId);
+  if (batchIds.length === 0) return [];
 
-  if (!studentProfile) {
-    return [];
-  }
-
-  // Resolve student's batch (with fallback to StudentBatch)
-  let studentBatchId = studentProfile.batchId;
-  if (!studentBatchId) {
-    const studentBatch = await prisma.studentBatch.findFirst({
-      where: {
-        studentId: userId,
-        coachingId,
-        isActive: true,
-        deletedAt: null
-      },
-      orderBy: { enrollmentDate: 'desc' }
-    });
-    studentBatchId = studentBatch?.batchId;
-  }
-
-  if (!studentBatchId) {
-    return [];
-  }
-
-  // Find tests where student's batch is in TestBatch table (new multi-batch system)
-  const testBatches = await prisma.testBatch.findMany({
-    where: { batchId: studentBatchId },
-    select: { testId: true }
-  });
-
-  const testIdsFromTestBatch = testBatches.map(tb => tb.testId);
-
-  // OR: support both new TestBatch join table AND legacy batchId field on test
-  return prisma.test.findMany({
+  const rows = await prisma.testBatch.findMany({
     where: {
-      OR: [
-        { id: { in: testIdsFromTestBatch } },
-        { batchId: studentBatchId }
-      ],
-      coachingId,
-      isActive: true,
-      isPublished: true,
-      endDate: { gte: new Date() }  // show ongoing tests too, not just future ones
+      batch_id: { in: batchIds },
+      test: {
+        coaching_center_id: Number(coachingId),
+        results_published: true,
+        end_time: { gte: new Date() }
+      }
     },
     include: {
-      coaching: { select: { id: true, name: true } },
-    },
-    orderBy: { startDate: 'asc' }
+      test: {
+        include: {
+          coaching_center: { select: { id: true, name: true } },
+          test_batches: true,
+          questions: true
+        }
+      }
+    }
   });
+
+  const unique = new Map();
+  for (const row of rows) {
+    if (row.test && !unique.has(row.test.id)) {
+      unique.set(row.test.id, mapTestForClient(row.test));
+    }
+  }
+  return [...unique.values()].sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 };
 
 const addQuestionToTest = async (questionData) => {
-  const { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks, durationSeconds } = questionData;
+  const { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks } = questionData;
 
-  const test = await prisma.test.findFirst({ where: { id: testId, isActive: true } });
+  const test = await prisma.test.findUnique({ where: { id: Number(testId) } });
   if (!test) throw new Error('Test not found');
 
-  const existingQuestionCount = await prisma.question.count({
-    where: { testId }
-  });
+  const count = await prisma.question.count({ where: { test_id: Number(testId) } });
+  if (count >= 30) throw new Error('A test can have a maximum of 30 questions');
 
-  if (existingQuestionCount >= 30) {
-    throw new Error('A test can have a maximum of 30 questions');
-  }
-
-  return prisma.question.create({
-    data: { 
-      testId, 
-      questionText, 
-      optionA, 
-      optionB, 
-      optionC, 
-      optionD, 
-      correctAnswer, 
-      marks: marks || 1,
-      durationSeconds: durationSeconds || null
+  const created = await prisma.question.create({
+    data: {
+      test_id: Number(testId),
+      question: questionText,
+      option_a: optionA,
+      option_b: optionB,
+      option_c: optionC,
+      option_d: optionD,
+      correct_option: String(correctAnswer || '').toUpperCase(),
+      marks: Number(marks || 1)
     }
   });
+
+  return mapQuestionForClient(created);
 };
 
 const getQuestionsByTest = async (testId) => {
-  return prisma.question.findMany({ where: { testId } });
+  const questions = await prisma.question.findMany({
+    where: { test_id: Number(testId) },
+    orderBy: { id: 'asc' }
+  });
+  return questions.map(mapQuestionForClient);
 };
 
-// Start an attempt — idempotent (returns existing if already started)
-const startAttempt = async (testId, studentProfileId) => {
-  const existing = await prisma.testAttempt.findUnique({
-    where: { testId_studentId: { testId, studentId: studentProfileId } }
-  });
+const startAttempt = async (testId, studentId) => {
+  const numericTestId = Number(testId);
+  const numericStudentId = Number(studentId);
 
-  if (existing && existing.status === 'SUBMITTED') {
-    throw new Error('Test already submitted. Resubmission is not allowed.');
-  }
-
-  if (existing) return existing;
-
-  const test = await prisma.test.findFirst({ where: { id: testId, isActive: true } });
-  if (!test) throw new Error('Test not found or inactive');
+  const test = await prisma.test.findUnique({ where: { id: numericTestId } });
+  if (!test) throw new Error('Test not found');
 
   const now = new Date();
-  if (now < test.startDate) throw new Error('Test has not started yet');
-  if (now > test.endDate) throw new Error('Test window has closed');
+  if (test.start_time && now < test.start_time) throw new Error('Test has not started yet');
+  if (test.end_time && now > test.end_time) throw new Error('Test window has closed');
 
-  // Verify student eligibility using TestBatch
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { id: studentProfileId },
-    include: { user: true }
+  const batchIds = await resolveStudentBatchIds(numericStudentId, test.coaching_center_id);
+  if (batchIds.length === 0) throw new Error('Student is not enrolled in any batch');
+
+  const eligible = await prisma.testBatch.findFirst({
+    where: { test_id: numericTestId, batch_id: { in: batchIds } }
   });
-  if (!studentProfile) throw new Error('Student profile not found');
-
-  // Resolve student's batch
-  let studentBatchId = studentProfile.batchId;
-  if (!studentBatchId) {
-    const studentBatch = await prisma.studentBatch.findFirst({
-      where: {
-        studentId: studentProfile.userId,
-        coachingId: test.coachingId,
-        isActive: true,
-        deletedAt: null
-      },
-      orderBy: { enrollmentDate: 'desc' }
-    });
-    studentBatchId = studentBatch?.batchId;
-  }
-
-  if (!studentBatchId) {
-    throw new Error('Student is not enrolled in any batch');
-  }
-
-  // Check if student's batch is assigned to this test
-  const testBatch = await prisma.testBatch.findFirst({
-    where: {
-      testId,
-      batchId: studentBatchId
-    }
-  });
-
-  if (!testBatch) {
+  if (!eligible) {
     throw new Error('You are not authorized to take this test. Your batch is not assigned to this test.');
   }
 
+  const existing = await prisma.testAttempt.findUnique({
+    where: { test_id_student_id: { test_id: numericTestId, student_id: numericStudentId } }
+  });
+  if (existing) return existing;
+
   return prisma.testAttempt.create({
-    data: { testId, studentId: studentProfileId, status: 'STARTED' }
+    data: {
+      test_id: numericTestId,
+      student_id: numericStudentId,
+      batch_id: eligible.batch_id,
+      submitted_at: null,
+      score: null
+    }
   });
 };
 
-// Submit — locked against resubmission; studentId derived from JWT profile
 const submitTest = async ({ testId, answers }, userId) => {
-  // Resolve the student profile from the JWT userId + coachingId stored on profile
-  const test = await prisma.test.findFirst({
-    where: { id: testId, isActive: true },
+  const numericTestId = Number(testId);
+  const numericStudentId = Number(userId);
+
+  const test = await prisma.test.findUnique({
+    where: { id: numericTestId },
     include: { questions: true }
   });
   if (!test) throw new Error('Test not found');
 
   const now = new Date();
-  if (now < test.startDate) throw new Error('Test has not started yet');
-  if (now > test.endDate) throw new Error('Test window has closed');
+  if (test.start_time && now < test.start_time) throw new Error('Test has not started yet');
+  if (test.end_time && now > test.end_time) throw new Error('Test window has closed');
 
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId: test.coachingId }
-  });
-  if (!studentProfile) throw new Error('Student profile not found for this coaching center');
+  const attempt = await startAttempt(numericTestId, numericStudentId);
+  const answerMap = answers && typeof answers === 'object' ? answers : {};
 
-  // Resolve student's batch (with fallback)
-  let studentBatchId = studentProfile.batchId;
-  if (!studentBatchId) {
-    const studentBatch = await prisma.studentBatch.findFirst({
-      where: {
-        studentId: userId,
-        coachingId: test.coachingId,
-        isActive: true,
-        deletedAt: null
-      },
-      orderBy: { enrollmentDate: 'desc' }
+  let score = 0;
+  const answerRows = [];
+
+  for (const question of test.questions) {
+    const raw = answerMap[question.id] ?? answerMap[String(question.id)] ?? null;
+    const selected = raw ? String(raw).toUpperCase() : null;
+    const isCorrect = Boolean(selected && selected === question.correct_option);
+    const awarded = isCorrect ? Number(question.marks || 0) : 0;
+    score += awarded;
+
+    answerRows.push({
+      attempt_id: attempt.id,
+      question_id: question.id,
+      selected_option: selected,
+      is_correct: isCorrect,
+      marks_awarded: awarded
     });
-    studentBatchId = studentBatch?.batchId;
   }
 
-  if (!studentBatchId) {
-    throw new Error('Student is not enrolled in any batch');
-  }
-
-  // Verify student's batch is assigned to this test
-  const testBatch = await prisma.testBatch.findFirst({
-    where: {
-      testId,
-      batchId: studentBatchId
+  await prisma.$transaction(async (tx) => {
+    await tx.testAnswer.deleteMany({ where: { attempt_id: attempt.id } });
+    if (answerRows.length > 0) {
+      await tx.testAnswer.createMany({ data: answerRows });
     }
-  });
-
-  if (!testBatch) {
-    throw new Error('You are not authorized to submit this test. Your batch is not assigned to this test.');
-  }
-
-  const studentProfileId = studentProfile.id;
-
-  // Check or create the attempt — will throw if already submitted
-  const attempt = await startAttempt(testId, studentProfileId);
-
-  // Mark as submitted in a transaction
-  const result = await prisma.$transaction(async (tx) => {
-    // Double-check attempt is still open (race condition guard)
-    const freshAttempt = await tx.testAttempt.findUnique({
-      where: { testId_studentId: { testId, studentId: studentProfileId } }
-    });
-    if (freshAttempt.status === 'SUBMITTED') {
-      throw new Error('Test already submitted. Resubmission is not allowed.');
-    }
-
-    // Score the answers
-    let score = 0;
-    for (const question of test.questions) {
-      const submitted = answers[question.id];
-      if (submitted && submitted.toUpperCase() === question.correctAnswer) {
-        score += question.marks;
-      }
-    }
-
-    const percentage = (score / test.maxScore) * 100;
-    const passed = percentage >= 40;
-
-    const newResult = await tx.result.create({
-      data: { testId, studentId: studentProfileId, score, totalMarks: test.maxScore, percentage, passed }
-    });
-
     await tx.testAttempt.update({
-      where: { testId_studentId: { testId, studentId: studentProfileId } },
-      data: { status: 'SUBMITTED', submittedAt: new Date() }
+      where: { id: attempt.id },
+      data: { score, submitted_at: new Date() }
     });
-
-    return newResult;
   });
 
-  await audit({ userId, action: 'SUBMIT_TEST', entityType: 'TEST', entityId: testId, metadata: { score: result.score } });
+  const totalMarks = test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+  const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
+  const result = {
+    testId: numericTestId,
+    studentId: numericStudentId,
+    score,
+    totalMarks,
+    percentage,
+    passed: percentage >= 40
+  };
+
+  await audit({
+    userId: numericStudentId,
+    action: 'SUBMIT_TEST',
+    entityType: 'TEST',
+    entityId: numericTestId,
+    metadata: { score }
+  });
+
   return result;
 };
 
 const getTeacherLeaderboard = async (testId, coachingId) => {
   const test = await prisma.test.findFirst({
-    where: { id: testId, coachingId, isActive: true },
-    select: { id: true, title: true }
+    where: { id: Number(testId), coaching_center_id: Number(coachingId) },
+    include: { questions: true }
   });
-
   if (!test) throw new Error('Test not found');
 
-  const results = await prisma.result.findMany({
-    where: { testId },
-    include: {
-      student: {
-        include: {
-          user: {
-            select: {
-              firstName: true,
-              lastName: true
-            }
-          }
-        }
-      }
-    },
-    orderBy: [
-      { score: 'desc' },
-      { submittedAt: 'asc' }
-    ]
+  const attempts = await prisma.testAttempt.findMany({
+    where: { test_id: Number(testId), score: { not: null } },
+    include: { student: { select: { id: true, name: true } } },
+    orderBy: [{ score: 'desc' }, { submitted_at: 'asc' }]
   });
 
-  const ranking = results.map((row, index) => ({
+  const totalMarks = test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+  const ranking = attempts.map((row, index) => ({
     rank: index + 1,
-    studentId: row.studentId,
-    studentName: `${row.student.user.firstName} ${row.student.user.lastName}`.trim(),
-    score: row.score,
-    totalMarks: row.totalMarks,
-    percentage: row.percentage,
-    submittedAt: row.submittedAt
+    studentId: row.student_id,
+    studentName: row.student?.name || 'Unknown',
+    score: Number(row.score || 0),
+    totalMarks,
+    percentage: totalMarks > 0 ? (Number(row.score || 0) / totalMarks) * 100 : 0,
+    submittedAt: row.submitted_at
   }));
 
   return {
-    test,
+    test: { id: test.id, title: test.title },
     totalParticipants: ranking.length,
     ranking
   };
 };
 
 const getStudentLeaderboard = async (testId, userId, coachingId) => {
-  const test = await prisma.test.findFirst({
-    where: { id: testId, coachingId, isActive: true },
-    select: { id: true, title: true }
-  });
-
-  if (!test) throw new Error('Test not found');
-
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId },
-    select: { id: true }
-  });
-
-  if (!studentProfile) throw new Error('Student profile not found');
-
-  const results = await prisma.result.findMany({
-    where: { testId },
-    orderBy: [
-      { score: 'desc' },
-      { submittedAt: 'asc' }
-    ],
-    select: {
-      studentId: true,
-      score: true,
-      submittedAt: true
-    }
-  });
-
-  const top5 = results.slice(0, 5).map((row, index) => ({
-    rank: index + 1,
-    score: row.score
-  }));
-
-  const myIndex = results.findIndex((row) => row.studentId === studentProfile.id);
-  const myStanding = myIndex === -1
-    ? null
-    : {
-        rank: myIndex + 1,
-        score: results[myIndex].score,
-        submittedAt: results[myIndex].submittedAt
-      };
+  const board = await getTeacherLeaderboard(testId, coachingId);
+  const myIndex = board.ranking.findIndex((row) => row.studentId === Number(userId));
 
   return {
-    test,
-    totalParticipants: results.length,
-    top5,
-    myStanding
+    test: board.test,
+    totalParticipants: board.totalParticipants,
+    top5: board.ranking.slice(0, 5).map(({ rank, score }) => ({ rank, score })),
+    myStanding: myIndex === -1
+      ? null
+      : {
+          rank: board.ranking[myIndex].rank,
+          score: board.ranking[myIndex].score,
+          submittedAt: board.ranking[myIndex].submittedAt
+        }
   };
 };
 
-// Students fetch their own results — userId comes from JWT
 const getMyResults = async (userId, coachingId) => {
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId }
-  });
-  if (!studentProfile) throw new Error('Student profile not found');
-
-  return prisma.result.findMany({
-    where: { studentId: studentProfile.id },
+  const attempts = await prisma.testAttempt.findMany({
+    where: { student_id: Number(userId), test: { coaching_center_id: Number(coachingId) } },
     include: {
-      test: { select: { id: true, title: true, startDate: true } }
+      test: { include: { questions: true } }
     },
-    orderBy: { submittedAt: 'desc' }
+    orderBy: { submitted_at: 'desc' }
+  });
+
+  return attempts.map((attempt) => {
+    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const score = Number(attempt.score || 0);
+    return {
+      id: attempt.id,
+      testId: attempt.test_id,
+      studentId: attempt.student_id,
+      score,
+      totalMarks,
+      percentage: totalMarks > 0 ? (score / totalMarks) * 100 : 0,
+      submittedAt: attempt.submitted_at,
+      test: {
+        id: attempt.test.id,
+        title: attempt.test.title,
+        startDate: attempt.test.start_time
+      }
+    };
   });
 };
 
-// Teachers/Owners can query a student's results by studentProfileId
 const getStudentResults = async (studentId) => {
-  return prisma.result.findMany({
-    where: { studentId },
+  const attempts = await prisma.testAttempt.findMany({
+    where: { student_id: Number(studentId) },
     include: {
-      test: { select: { id: true, title: true, startDate: true } },
-      student: { include: { user: { select: { firstName: true, lastName: true } } } }
-    }
+      test: { include: { questions: true } },
+      student: { select: { id: true, name: true } }
+    },
+    orderBy: { submitted_at: 'desc' }
+  });
+
+  return attempts.map((attempt) => {
+    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const score = Number(attempt.score || 0);
+    return {
+      id: attempt.id,
+      testId: attempt.test_id,
+      studentId: attempt.student_id,
+      score,
+      totalMarks,
+      percentage: totalMarks > 0 ? (score / totalMarks) * 100 : 0,
+      submittedAt: attempt.submitted_at,
+      student: { id: attempt.student?.id, name: attempt.student?.name || 'Unknown' },
+      test: { id: attempt.test.id, title: attempt.test.title, startDate: attempt.test.start_time }
+    };
   });
 };
 
 const getTestResults = async (testId) => {
-  return prisma.result.findMany({
-    where: { testId },
+  const attempts = await prisma.testAttempt.findMany({
+    where: { test_id: Number(testId) },
     include: {
-      test: { select: { id: true, title: true } },
-      student: { include: { user: { select: { firstName: true, lastName: true } } } }
-    }
+      test: { include: { questions: true } },
+      student: { select: { id: true, name: true } }
+    },
+    orderBy: [{ score: 'desc' }, { submitted_at: 'asc' }]
+  });
+
+  return attempts.map((attempt) => {
+    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const score = Number(attempt.score || 0);
+    return {
+      id: attempt.id,
+      testId: attempt.test_id,
+      studentId: attempt.student_id,
+      score,
+      totalMarks,
+      percentage: totalMarks > 0 ? (score / totalMarks) * 100 : 0,
+      submittedAt: attempt.submitted_at,
+      student: { id: attempt.student?.id, name: attempt.student?.name || 'Unknown' },
+      test: { id: attempt.test.id, title: attempt.test.title }
+    };
   });
 };
 
-// Soft delete a test
 const deactivateTest = async (testId, requesterId) => {
-  const test = await prisma.test.update({
-    where: { id: testId },
-    data: { isActive: false, deletedAt: new Date() }
-  });
-  await audit({ userId: requesterId, action: 'DEACTIVATE_TEST', entityType: 'TEST', entityId: testId });
+  const test = await prisma.test.delete({ where: { id: Number(testId) } });
+  await audit({ userId: requesterId, action: 'DEACTIVATE_TEST', entityType: 'TEST', entityId: Number(testId) });
   return test;
 };
 
 const publishTest = async (testId, requesterId) => {
   const test = await prisma.test.update({
-    where: { id: testId },
-    data: { isPublished: true }
+    where: { id: Number(testId) },
+    data: { results_published: true }
   });
-  await audit({ userId: requesterId, action: 'PUBLISH_TEST', entityType: 'TEST', entityId: testId });
-  return test;
+  await audit({ userId: requesterId, action: 'PUBLISH_TEST', entityType: 'TEST', entityId: Number(testId) });
+  return mapTestForClient({ ...test, test_batches: [], questions: [], coaching_center: null });
 };
 
 module.exports = {

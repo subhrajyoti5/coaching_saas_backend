@@ -24,12 +24,8 @@ const recordPayment = async (req, res) => {
 // GET /my-fees — student gets their own fees from JWT
 const getMyFees = async (req, res) => {
   try {
-    const { userId, coachingId } = req.user;
-    const prisma = require('../config/database');
-    const studentProfile = await prisma.studentProfile.findFirst({ where: { userId, coachingId } });
-    if (!studentProfile) return res.status(HTTP_STATUS.NOT_FOUND).json({ error: 'Student profile not found' });
-
-    const fees = await feeService.getStudentFees(studentProfile.id);
+    const { userId } = req.user;
+    const fees = await feeService.getStudentFees(userId);
     return res.status(HTTP_STATUS.SUCCESS).json({ fees });
   } catch (error) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: 'Failed to fetch fees', message: error.message });

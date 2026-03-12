@@ -1,6 +1,5 @@
 const testService = require('../services/testService');
 const { HTTP_STATUS, SUCCESS_MESSAGES } = require('../config/constants');
-const prisma = require('../config/database');
 
 const createTest = async (req, res) => {
   try {
@@ -100,17 +99,8 @@ const getQuestionsByTest = async (req, res) => {
 const startAttempt = async (req, res) => {
   try {
     const { testId } = req.body;
-    const { userId, coachingId } = req.user;
-
-    const studentProfile = await prisma.studentProfile.findFirst({
-      where: { userId, coachingId }
-    });
-
-    if (!studentProfile) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({ error: 'Student profile not found' });
-    }
-
-    const attempt = await testService.startAttempt(testId, studentProfile.id);
+    const { userId } = req.user;
+    const attempt = await testService.startAttempt(testId, userId);
     return res.status(HTTP_STATUS.SUCCESS).json({ attempt });
   } catch (error) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({

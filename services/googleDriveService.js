@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
-const prisma = require('../config/database');
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
@@ -64,110 +63,21 @@ const verifyStateToken = (token) => {
   return jwt.verify(token, secret, { clockTolerance: clockToleranceSeconds });
 };
 
-const createDriveConnectionAuthUrl = async ({ userId, coachingId }) => {
-  const oauth2Client = getOAuthClient();
-  const state = signStateToken({ userId, coachingId });
-
-  const authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: [DRIVE_SCOPE, 'email', 'profile'],
-    state,
-    include_granted_scopes: true
-  });
-
-  return authUrl;
+const deprecatedTeacherDriveError = () => {
+  throw new Error('Teacher-level Google Drive auth is deprecated. Use developer drive configuration only.');
 };
 
-const handleDriveOAuthCallback = async ({ code, state }) => {
-  const decoded = verifyStateToken(state);
-  const { userId, coachingId } = decoded;
+const createDriveConnectionAuthUrl = async () => deprecatedTeacherDriveError();
+const handleDriveOAuthCallback = async () => deprecatedTeacherDriveError();
+const getDriveConnectionStatus = async () => ({ connected: false, deprecated: true });
 
-  const oauth2Client = getOAuthClient();
-  const { tokens } = await oauth2Client.getToken(code);
-
-  if (!tokens.refresh_token) {
-    throw new Error('Google did not return a refresh token. Reconnect with consent prompt.');
-  }
-
-  oauth2Client.setCredentials({ access_token: tokens.access_token });
-  const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-  const me = await oauth2.userinfo.get();
-  const googleAccountEmail = (me.data.email || '').toLowerCase();
-
-  if (!googleAccountEmail) {
-    throw new Error('Unable to fetch Google account email from OAuth response');
-  }
-
-  const encryptedRefreshToken = encryptText(tokens.refresh_token);
-
-  const connection = await prisma.googleDriveConnection.upsert({
-    where: { userId_coachingId: { userId, coachingId } },
-    update: {
-      googleAccountEmail,
-      encryptedRefreshToken,
-      scope: tokens.scope || DRIVE_SCOPE,
-      revokedAt: null
-    },
-    create: {
-      userId,
-      coachingId,
-      googleAccountEmail,
-      encryptedRefreshToken,
-      scope: tokens.scope || DRIVE_SCOPE,
-      revokedAt: null
-    }
-  });
-
-  return connection;
-};
-
-const getDriveConnectionStatus = async ({ userId, coachingId }) => {
-  const connection = await prisma.googleDriveConnection.findFirst({
-    where: {
-      userId,
-      coachingId,
-      revokedAt: null
-    }
-  });
-
-  if (!connection) {
-    return { connected: false };
-  }
-
-  return {
-    connected: true,
-    googleAccountEmail: connection.googleAccountEmail,
-    connectedAt: connection.connectedAt
-  };
-};
-
-const getDriveClientForTeacher = async ({ userId, coachingId }) => {
-  const connection = await prisma.googleDriveConnection.findFirst({
-    where: {
-      userId,
-      coachingId,
-      revokedAt: null
-    }
-  });
-
-  if (!connection) {
-    throw new Error('Google Drive is not connected for this teacher');
-  }
-
-  const refreshToken = decryptText(connection.encryptedRefreshToken);
-  const oauth2Client = getOAuthClient();
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-
-  return {
-    drive: google.drive({ version: 'v3', auth: oauth2Client }),
-    connection
-  };
+const getDriveClientForTeacher = async () => {
+  deprecatedTeacherDriveError();
 };
 
 const getDeveloperDriveClient = async () => {
   const refreshToken = process.env.DEVELOPER_DRIVE_REFRESH_TOKEN;
-  
+
   if (!refreshToken) {
     throw new Error('DEVELOPER_DRIVE_REFRESH_TOKEN is not configured in environment variables');
   }
@@ -179,20 +89,13 @@ const getDeveloperDriveClient = async () => {
 };
 
 const setDriveFilePermissions = async (drive, fileId) => {
-  try {
-    // Set permission to "Anyone with the link" with Viewer role (read-only)
-    await drive.permissions.create({
-      fileId,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone'
-      }
-    });
-    console.log(`[Drive Permissions] File ${fileId} set to "Anyone with link - Viewer"`);
-  } catch (error) {
-    console.error(`[Drive Permissions Error] Failed to set permissions for ${fileId}:`, error.message);
-    throw error;
-  }
+  await drive.permissions.create({
+    fileId,
+    requestBody: {
+      role: 'reader',
+      type: 'anyone'
+    }
+  });
 };
 
 module.exports = {
@@ -201,5 +104,9 @@ module.exports = {
   getDriveConnectionStatus,
   getDriveClientForTeacher,
   getDeveloperDriveClient,
-  setDriveFilePermissions
+  setDriveFilePermissions,
+  encryptText,
+  decryptText,
+  signStateToken,
+  verifyStateToken
 };
