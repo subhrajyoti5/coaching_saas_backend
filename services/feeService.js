@@ -61,39 +61,53 @@ const getFeeById = async (feeId) => {
 
 const getStudentFees = async (studentId) => {
   return prisma.fee.findMany({
-    where: { studentId },
+    where: { student_id: Number(studentId) },
     include: {
-      student: { include: { user: { select: { firstName: true, lastName: true, email: true } } } },
-      transactions: { orderBy: { createdAt: 'desc' } }
+      student: { select: { id: true, name: true, email: true } },
+      batch: { select: { id: true, name: true, coaching_center_id: true } },
+      payments: { orderBy: { paid_at: 'desc' } }
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { created_at: 'desc' }
   });
 };
 
 const getCoachingFees = async (coachingId) => {
   return prisma.fee.findMany({
-    where: { coachingId },
+    where: { batch: { coaching_center_id: Number(coachingId) } },
     include: {
-      student: { include: { user: { select: { firstName: true, lastName: true, email: true } } } },
-      transactions: { orderBy: { createdAt: 'desc' } }
+      student: { select: { id: true, name: true, email: true } },
+      batch: { select: { id: true, name: true, coaching_center_id: true } },
+      payments: { orderBy: { paid_at: 'desc' } }
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { created_at: 'desc' }
   });
 };
 
 const getCoachingFeeSummary = async (coachingId) => {
-  const summary = await prisma.fee.aggregate({
-    where: { coachingId },
-    _sum: { amount: true, paidAmount: true },
-    _count: { _all: true }
-  });
-  const pendingAmount = (summary._sum.amount || 0) - (summary._sum.paidAmount || 0);
+  const numericCoachingId = Number(coachingId);
+
+  const [feeSummary, paymentSummary] = await Promise.all([
+    prisma.fee.aggregate({
+      where: { batch: { coaching_center_id: numericCoachingId } },
+      _sum: { total_fee: true },
+      _count: { _all: true }
+    }),
+    prisma.payment.aggregate({
+      where: { fee: { batch: { coaching_center_id: numericCoachingId } } },
+      _sum: { amount: true }
+    })
+  ]);
+
+  const totalAmount = feeSummary._sum.total_fee || 0;
+  const totalPaid = paymentSummary._sum.amount || 0;
+  const pendingAmount = totalAmount - totalPaid;
+
   return {
-    totalRecords: summary._count._all,
-    totalAmount: summary._sum.amount || 0,
-    totalPaid: summary._sum.paidAmount || 0,
+    totalRecords: feeSummary._count._all,
+    totalAmount,
+    totalPaid,
     totalPending: pendingAmount,
-    collectionRate: summary._sum.amount ? ((summary._sum.paidAmount || 0) / summary._sum.amount) * 100 : 0
+    collectionRate: totalAmount ? (totalPaid / totalAmount) * 100 : 0
   };
 };
 

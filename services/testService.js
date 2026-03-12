@@ -1,6 +1,20 @@
 const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
 
+const mapTestForClient = (test) => ({
+  id: test.id,
+  title: test.title,
+  coachingId: test.coaching_center_id,
+  duration: test.duration_minutes,
+  startDate: test.start_time,
+  endDate: test.end_time,
+  isPublished: test.results_published,
+  createdAt: test.created_at,
+  coaching: test.coaching_center
+    ? { id: test.coaching_center.id, name: test.coaching_center.name }
+    : null
+});
+
 const createTest = async (testData, requesterId) => {
   const { title, coachingId, batchIds, duration, startDate, endDate, maxScore } = testData;
   
@@ -50,23 +64,33 @@ const getTestById = async (testId) => {
 };
 
 const getTestsByCoaching = async (coachingId) => {
-  return prisma.test.findMany({
-    where: { coachingId, isActive: true },
+  const tests = await prisma.test.findMany({
+    where: { coaching_center_id: Number(coachingId) },
     include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } }
-    }
+      coaching_center: { select: { id: true, name: true } }
+    },
+    orderBy: { start_time: 'asc' }
   });
+
+  return tests.map(mapTestForClient);
 };
 
 const getTestsByBatch = async (batchId) => {
-  return prisma.test.findMany({
-    where: { batchId, isActive: true },
+  const testBatchRows = await prisma.testBatch.findMany({
+    where: { batch_id: Number(batchId) },
     include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } }
+      test: {
+        include: {
+          coaching_center: { select: { id: true, name: true } }
+        }
+      }
     }
   });
+
+  return testBatchRows
+    .map((row) => row.test)
+    .filter(Boolean)
+    .map(mapTestForClient);
 };
 
 const getMyUpcomingTests = async (userId, coachingId) => {
