@@ -6,18 +6,6 @@ datasource db {
   provider = "postgresql"
 }
 
-enum UserRole {
-  OWNER
-  TEACHER
-  STUDENT
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  LATE
-}
-
 model CoachingCenter {
   id            Int                    @id @default(autoincrement())
   name          String
@@ -65,7 +53,7 @@ model User {
   id                Int               @id @default(autoincrement())
   name              String
   email             String            @unique
-  role              UserRole
+  role              String
   coaching_center_id Int?
   is_active         Boolean?          @default(true)
   created_at        DateTime?         @default(now()) @db.Timestamp(6)
@@ -193,7 +181,7 @@ model Attendance {
   id         Int               @id @default(autoincrement())
   lecture_id Int?
   student_id Int?
-  status     AttendanceStatus?
+  status     String?
   marked_at  DateTime?         @default(now()) @db.Timestamp(6)
 
   lecture    Lecture?          @relation(fields: [lecture_id], references: [id], onDelete: Cascade)
