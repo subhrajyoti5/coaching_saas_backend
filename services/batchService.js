@@ -1,11 +1,10 @@
 const prisma = require('../config/database');
-const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
 const createBatch = async (batchData, requesterId) => {
-  const { name, coachingId, description } = batchData;
+  const { name, coachingId } = batchData;
   const batch = await prisma.batch.create({
-    data: { name, coachingId, description }
+    data: { name, coaching_center_id: Number(coachingId), created_by: requesterId }
   });
   await audit({ userId: requesterId, action: 'CREATE_BATCH', entityType: 'BATCH', entityId: batch.id });
   return batch;
@@ -13,8 +12,8 @@ const createBatch = async (batchData, requesterId) => {
 
 const getBatchById = async (batchId) => {
   const batch = await prisma.batch.findFirst({
-    where: { id: batchId, isActive: true },
-    include: { coaching: { select: { id: true, name: true } } }
+    where: { id: Number(batchId) },
+    include: { coaching_center: { select: { id: true, name: true } } }
   });
   if (!batch) throw new Error('Batch not found');
   return batch;
@@ -22,122 +21,95 @@ const getBatchById = async (batchId) => {
 
 const getBatchesByCoaching = async (coachingId) => {
   return prisma.batch.findMany({
-    where: { coachingId, isActive: true },
-    include: { coaching: { select: { id: true, name: true } } }
+    where: { coaching_center_id: Number(coachingId) },
+    include: { coaching_center: { select: { id: true, name: true } } }
   });
 };
 
 const assignTeacherToBatch = async (teacherId, batchId, requesterId) => {
-  const user = await prisma.user.findUnique({ where: { id: teacherId } });
-  if (!user || !user.isActive) throw new Error('User not found');
+  const user = await prisma.user.findUnique({ where: { id: Number(teacherId) } });
+  if (!user || !user.is_active) throw new Error('User not found');
 
-  const batch = await prisma.batch.findFirst({ where: { id: batchId, isActive: true } });
+  const batch = await prisma.batch.findFirst({ where: { id: Number(batchId) } });
   if (!batch) throw new Error('Batch not found');
 
-  // Ensure user is associated with this coaching as a teacher or owner
-  const membership = await prisma.coachingUser.findFirst({
-    where: { userId: teacherId, coachingId: batch.coachingId, role: { in: ['TEACHER', 'OWNER'] } }
-  });
-  if (!membership) throw new Error('User is not a teacher or owner in this coaching center');
+  if (user.coaching_center_id !== batch.coaching_center_id) {
+    throw new Error('User is not in this coaching center');
+  }
+  if (!['TEACHER', 'OWNER'].includes(user.role)) {
+    throw new Error('User is not a teacher or owner');
+  }
 
-  const existing = await prisma.batchTeacher.findFirst({ where: { teacherId, batchId } });
+  const existing = await prisma.batchSubject.findFirst({
+    where: { teacher_id: Number(teacherId), batch_id: Number(batchId), subject_id: null }
+  });
   if (existing) throw new Error('Teacher is already assigned to this batch');
 
-  const assignment = await prisma.batchTeacher.create({
-    data: { teacherId, batchId, assignedBy: requesterId }
+  const assignment = await prisma.batchSubject.create({
+    data: { teacher_id: Number(teacherId), batch_id: Number(batchId) }
   });
-  await audit({ userId: requesterId, action: 'ASSIGN_TEACHER_BATCH', entityType: 'BATCH_TEACHER', entityId: assignment.id, metadata: { teacherId, batchId } });
+  await audit({ userId: requesterId, action: 'ASSIGN_TEACHER_BATCH', entityType: 'BATCH_SUBJECT', entityId: assignment.id, metadata: { teacherId, batchId } });
   return assignment;
 };
 
 const removeTeacherFromBatch = async (teacherId, batchId, requesterId) => {
-  const result = await prisma.batchTeacher.deleteMany({ where: { teacherId, batchId } });
+  const result = await prisma.batchSubject.deleteMany({
+    where: { teacher_id: Number(teacherId), batch_id: Number(batchId) }
+  });
   if (result.count === 0) throw new Error('Teacher is not assigned to this batch');
 
-  await audit({ userId: requesterId, action: 'REMOVE_TEACHER_BATCH', entityType: 'BATCH', entityId: batchId, metadata: { teacherId } });
+  await audit({ userId: requesterId, action: 'REMOVE_TEACHER_BATCH', entityType: 'BATCH', entityId: Number(batchId), metadata: { teacherId } });
   return { message: 'Teacher successfully removed from batch' };
 };
 
 const assignStudentToBatch = async (studentId, batchId, requesterId) => {
-  // First, check if this is a StudentProfile ID or a User ID
-  let studentProfile = await prisma.studentProfile.findUnique({ where: { id: studentId } });
-  
-  // If not found as StudentProfile, try to find it by userId in CoachingUser
-  if (!studentProfile) {
-    // studentId might actually be a userId for a student without StudentProfile
-    const coachingUser = await prisma.coachingUser.findFirst({
-      where: { userId: studentId, role: ROLES.STUDENT }
-    });
-    
-    if (!coachingUser) {
-      throw new Error('Student not found');
-    }
-    
-    // Auto-create StudentProfile for this student
-    const batch = await prisma.batch.findFirst({ where: { id: batchId, isActive: true } });
-    if (!batch) throw new Error('Batch not found');
-    
-    studentProfile = await prisma.studentProfile.create({
-      data: {
-        userId: studentId,
-        coachingId: batch.coachingId,
-        batchId: batchId
-      }
-    });
-    
-    await audit({ userId: requesterId, action: 'CREATE_STUDENT_PROFILE', entityType: 'STUDENT_PROFILE', entityId: studentProfile.id, metadata: { coachingId: batch.coachingId } });
-    await audit({ userId: requesterId, action: 'ASSIGN_STUDENT_BATCH', entityType: 'STUDENT_PROFILE', entityId: studentProfile.id, metadata: { batchId } });
-    return studentProfile;
-  }
+  const student = await prisma.user.findUnique({ where: { id: Number(studentId) } });
+  if (!student) throw new Error('Student not found');
 
-  const batch = await prisma.batch.findFirst({ where: { id: batchId, isActive: true } });
+  const batch = await prisma.batch.findFirst({ where: { id: Number(batchId) } });
   if (!batch) throw new Error('Batch not found');
 
-  if (studentProfile.coachingId !== batch.coachingId) {
-    throw new Error('Student and batch must belong to the same coaching center');
-  }
-
-  const updated = await prisma.studentProfile.update({
-    where: { id: studentId },
-    data: { batchId }
+  const existing = await prisma.batchStudent.findFirst({
+    where: { student_id: Number(studentId), batch_id: Number(batchId) }
   });
-  await audit({ userId: requesterId, action: 'ASSIGN_STUDENT_BATCH', entityType: 'STUDENT_PROFILE', entityId: studentId, metadata: { batchId } });
-  return updated;
+  if (existing) throw new Error('Student is already assigned to this batch');
+
+  const assignment = await prisma.batchStudent.create({
+    data: { student_id: Number(studentId), batch_id: Number(batchId) }
+  });
+  await audit({ userId: requesterId, action: 'ASSIGN_STUDENT_BATCH', entityType: 'BATCH_STUDENT', entityId: assignment.id, metadata: { studentId, batchId } });
+  return assignment;
 };
 
 const removeStudentFromBatch = async (studentId, requesterId) => {
-  const updated = await prisma.studentProfile.update({
-    where: { id: studentId },
-    data: { batchId: null }
-  });
-  await audit({ userId: requesterId, action: 'REMOVE_STUDENT_BATCH', entityType: 'STUDENT_PROFILE', entityId: studentId });
-  return updated;
+  await prisma.batchStudent.deleteMany({ where: { student_id: Number(studentId) } });
+  await audit({ userId: requesterId, action: 'REMOVE_STUDENT_BATCH', entityType: 'BATCH_STUDENT', entityId: Number(studentId) });
+  return { message: 'Student removed from batch' };
 };
 
 const getTeachersByBatch = async (batchId) => {
-  const batchTeachers = await prisma.batchTeacher.findMany({
-    where: { batchId },
-    include: { teacher: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } } }
+  const batchSubjects = await prisma.batchSubject.findMany({
+    where: { batch_id: Number(batchId), teacher_id: { not: null } },
+    include: { teacher: { select: { id: true, email: true, name: true } } }
   });
-  return batchTeachers.map(bt => bt.teacher);
+  // Deduplicate by teacher_id
+  const seen = new Set();
+  return batchSubjects
+    .map(bs => bs.teacher)
+    .filter(t => t && !seen.has(t.id) && seen.add(t.id));
 };
 
 const getStudentsByBatch = async (batchId) => {
-  const students = await prisma.studentProfile.findMany({
-    where: { batchId },
-    include: { user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } } }
+  const batchStudents = await prisma.batchStudent.findMany({
+    where: { batch_id: Number(batchId) },
+    include: { student: { select: { id: true, email: true, name: true } } }
   });
-  return students.map(s => ({
-    profileId: s.id, ...s.user, parentName: s.parentName, parentPhone: s.parentPhone, gradeLevel: s.gradeLevel
-  }));
+  return batchStudents.map(bs => ({ batchStudentId: bs.id, ...bs.student }));
 };
 
 const deactivateBatch = async (batchId, requesterId) => {
-  const batch = await prisma.batch.update({
-    where: { id: batchId },
-    data: { isActive: false, deletedAt: new Date() }
-  });
-  await audit({ userId: requesterId, action: 'DEACTIVATE_BATCH', entityType: 'BATCH', entityId: batchId });
+  const batch = await prisma.batch.delete({ where: { id: Number(batchId) } });
+  await audit({ userId: requesterId, action: 'DEACTIVATE_BATCH', entityType: 'BATCH', entityId: Number(batchId) });
   return batch;
 };
 
