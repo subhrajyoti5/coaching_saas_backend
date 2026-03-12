@@ -1,66 +1,107 @@
 const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
 
-const calculateAndSetStatus = async (tx, feeId) => {
-  const fee = await tx.fee.findUnique({ where: { id: feeId } });
-  let status = 'PENDING';
-  if (fee.paidAmount >= fee.amount) status = 'PAID';
-  else if (fee.paidAmount > 0) status = 'PARTIAL';
-  return tx.fee.update({ where: { id: feeId }, data: { status } });
+const calculateFeeState = (totalFee, totalPaid) => {
+  if (totalPaid >= totalFee) return 'PAID';
+  if (totalPaid > 0) return 'PARTIAL';
+  return 'PENDING';
+};
+
+const enrichFee = async (fee) => {
+  const paid = await prisma.payment.aggregate({
+    where: { fee_id: fee.id },
+    _sum: { amount: true }
+  });
+  const paidAmount = paid._sum.amount || 0;
+  const totalFee = fee.total_fee || 0;
+
+  return {
+    ...fee,
+    studentId: fee.student_id,
+    batchId: fee.batch_id,
+    amount: totalFee,
+    dueDate: fee.due_date,
+    createdAt: fee.created_at,
+    paidAmount,
+    status: calculateFeeState(totalFee, paidAmount)
+  };
 };
 
 const createFeeRecord = async (feeData, requesterId) => {
-  const { studentId, coachingId, amount, dueDate, notes } = feeData;
+  const { studentId, coachingId, amount, dueDate } = feeData;
 
-  const studentProfile = await prisma.studentProfile.findUnique({ where: { id: studentId } });
-  if (!studentProfile || studentProfile.coachingId !== coachingId) {
+  const student = await prisma.user.findUnique({ where: { id: Number(studentId) } });
+  if (!student || student.coaching_center_id !== Number(coachingId)) {
     throw new Error('Student does not belong to the specified coaching center');
   }
 
-  const fee = await prisma.fee.create({ data: { studentId, coachingId, amount, dueDate, notes } });
-  const updatedFee = await prisma.$transaction(async (tx) => calculateAndSetStatus(tx, fee.id));
+  const latestBatch = await prisma.batchStudent.findFirst({
+    where: {
+      student_id: Number(studentId),
+      batch: { coaching_center_id: Number(coachingId) }
+    },
+    orderBy: { joined_at: 'desc' }
+  });
 
-  await audit({ userId: requesterId, action: 'CREATE_FEE', entityType: 'FEE', entityId: fee.id, metadata: { amount } });
-  return updatedFee;
+  const fee = await prisma.fee.create({
+    data: {
+      student_id: Number(studentId),
+      batch_id: latestBatch?.batch_id || null,
+      total_fee: Number(amount),
+      due_date: dueDate ? new Date(dueDate) : null
+    }
+  });
+
+  await audit({
+    userId: requesterId,
+    action: 'CREATE_FEE',
+    entityType: 'FEE',
+    entityId: fee.id,
+    metadata: { amount: Number(amount), studentId: Number(studentId) }
+  });
+  return enrichFee(fee);
 };
 
 // Record a payment — never overwrite paidAmount directly; always log a transaction
 const recordPayment = async (feeId, paymentData, requesterId) => {
-  const { amount, paymentMethod = 'CASH', referenceId, notes } = paymentData;
+  const { amount } = paymentData;
 
-  const fee = await prisma.fee.findUnique({ where: { id: feeId } });
+  const fee = await prisma.fee.findUnique({ where: { id: Number(feeId) } });
   if (!fee) throw new Error('Fee record not found');
 
-  if (amount <= 0) throw new Error('Payment amount must be greater than 0');
+  const numericAmount = Number(amount);
+  if (!numericAmount || numericAmount <= 0) throw new Error('Payment amount must be greater than 0');
 
-  const result = await prisma.$transaction(async (tx) => {
-    // Log the transaction first
-    await tx.feeTransaction.create({
-      data: { feeId, amount, paymentMethod, referenceId, notes, recordedBy: requesterId }
-    });
-
-    // Accumulate — capped at total amount
-    const newPaidAmount = Math.min(fee.paidAmount + amount, fee.amount);
-    await tx.fee.update({ where: { id: feeId }, data: { paidAmount: newPaidAmount } });
-
-    return calculateAndSetStatus(tx, feeId);
+  await prisma.payment.create({
+    data: {
+      fee_id: Number(feeId),
+      amount: numericAmount,
+      recorded_by: requesterId
+    }
   });
 
-  await audit({ userId: requesterId, action: 'RECORD_PAYMENT', entityType: 'FEE', entityId: feeId, metadata: { amount, paymentMethod } });
-  return result;
+  await audit({
+    userId: requesterId,
+    action: 'RECORD_PAYMENT',
+    entityType: 'FEE',
+    entityId: Number(feeId),
+    metadata: { amount: numericAmount }
+  });
+  const refreshed = await prisma.fee.findUnique({ where: { id: Number(feeId) } });
+  return enrichFee(refreshed);
 };
 
 const getFeeById = async (feeId) => {
   const fee = await prisma.fee.findUnique({
-    where: { id: feeId },
-    include: { transactions: { orderBy: { createdAt: 'desc' } } }
+    where: { id: Number(feeId) },
+    include: { payments: { orderBy: { paid_at: 'desc' } }, student: true, batch: true }
   });
   if (!fee) throw new Error('Fee record not found');
-  return fee;
+  return enrichFee(fee);
 };
 
 const getStudentFees = async (studentId) => {
-  return prisma.fee.findMany({
+  const fees = await prisma.fee.findMany({
     where: { student_id: Number(studentId) },
     include: {
       student: { select: { id: true, name: true, email: true } },
@@ -69,10 +110,11 @@ const getStudentFees = async (studentId) => {
     },
     orderBy: { created_at: 'desc' }
   });
+  return Promise.all(fees.map(enrichFee));
 };
 
 const getCoachingFees = async (coachingId) => {
-  return prisma.fee.findMany({
+  const fees = await prisma.fee.findMany({
     where: { batch: { coaching_center_id: Number(coachingId) } },
     include: {
       student: { select: { id: true, name: true, email: true } },
@@ -81,6 +123,7 @@ const getCoachingFees = async (coachingId) => {
     },
     orderBy: { created_at: 'desc' }
   });
+  return Promise.all(fees.map(enrichFee));
 };
 
 const getCoachingFeeSummary = async (coachingId) => {
@@ -112,27 +155,35 @@ const getCoachingFeeSummary = async (coachingId) => {
 };
 
 const updateFeeRecord = async (feeId, updateData, requesterId) => {
-  const fee = await prisma.fee.findUnique({ where: { id: feeId } });
+  const fee = await prisma.fee.findUnique({ where: { id: Number(feeId) } });
   if (!fee) throw new Error('Fee record not found');
 
-  // Avoid overwriting paidAmount via general update — use recordPayment instead
-  const safeData = { ...updateData };
-  delete safeData.paidAmount;
+  const safeData = {};
+  if (Object.prototype.hasOwnProperty.call(updateData, 'amount')) safeData.total_fee = Number(updateData.amount);
+  if (Object.prototype.hasOwnProperty.call(updateData, 'dueDate')) {
+    safeData.due_date = updateData.dueDate ? new Date(updateData.dueDate) : null;
+  }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    await tx.fee.update({ where: { id: feeId }, data: safeData });
-    return calculateAndSetStatus(tx, feeId);
+  const updated = await prisma.fee.update({
+    where: { id: Number(feeId) },
+    data: safeData
   });
 
-  await audit({ userId: requesterId, action: 'UPDATE_FEE', entityType: 'FEE', entityId: feeId });
-  return updated;
+  await audit({ userId: requesterId, action: 'UPDATE_FEE', entityType: 'FEE', entityId: Number(feeId) });
+  return enrichFee(updated);
 };
 
 const getFeeTransactions = async (feeId) => {
-  return prisma.feeTransaction.findMany({
-    where: { feeId },
-    orderBy: { createdAt: 'desc' }
+  const payments = await prisma.payment.findMany({
+    where: { fee_id: Number(feeId) },
+    orderBy: { paid_at: 'desc' }
   });
+  return payments.map((payment) => ({
+    ...payment,
+    feeId: payment.fee_id,
+    recordedBy: payment.recorded_by,
+    createdAt: payment.paid_at
+  }));
 };
 
 module.exports = {
