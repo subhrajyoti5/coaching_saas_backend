@@ -2,201 +2,186 @@ const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
-const createNotice = async (
-  noticeData,
-  requesterId,
-  requesterRole,
-  requesterCoachingId
-) => {
-  const { coachingId, batchId, title, content, expiresAt } = noticeData;
+// Shared include shape for all notice queries
+const noticeInclude = {
+  coaching_center: { select: { id: true, name: true } },
+  targets: { include: { batch: { select: { id: true, name: true } } } },
+  creator: { select: { id: true, name: true, email: true } },
+};
 
-  if (!requesterCoachingId || requesterCoachingId !== coachingId) {
+// Map DB row → shape expected by Flutter clients
+function mapNoticeForClient(notice) {
+  const target = notice.targets?.[0]?.batch ?? null;
+  return {
+    id: notice.id,
+    title: notice.title,
+    content: notice.content,
+    createdAt: notice.created_at,
+    creator: notice.creator
+      ? { id: notice.creator.id, firstName: notice.creator.name ?? '', lastName: '', email: notice.creator.email }
+      : null,
+    batch: target ? { id: target.id, name: target.name } : null,
+    coaching: notice.coaching_center ?? null,
+  };
+}
+
+const createNotice = async (noticeData, requesterId, requesterRole, requesterCoachingId) => {
+  const { coachingId, batchId, title, content } = noticeData;
+
+  if (!requesterCoachingId || Number(requesterCoachingId) !== Number(coachingId)) {
     throw new Error('You can only create notices in your selected coaching center');
   }
 
   if (batchId) {
     const batch = await prisma.batch.findFirst({
-      where: { id: batchId, coachingId, isActive: true }
+      where: { id: Number(batchId), coaching_center_id: Number(coachingId) },
     });
-    if (!batch) {
-      throw new Error('Selected batch is invalid for this coaching center');
-    }
+    if (!batch) throw new Error('Selected batch is invalid for this coaching center');
   }
 
-  // Teachers can only post to their assigned batches; Owners can post to any/all
   if (requesterRole === ROLES.TEACHER) {
     if (!batchId) throw new Error('Teachers must specify a batch when posting a notice');
-
-    const assigned = await prisma.batchTeacher.findFirst({
-      where: { teacherId: requesterId, batchId }
+    const assigned = await prisma.batchSubject.findFirst({
+      where: { teacher_id: requesterId, batch_id: Number(batchId) },
     });
     if (!assigned) throw new Error('You are not assigned to this batch');
   }
 
   const notice = await prisma.notice.create({
     data: {
-      coachingId,
-      batchId: batchId || null,
+      coaching_center_id: Number(coachingId),
       title,
       content,
-      createdBy: requesterId,
-      createdByRole: requesterRole,
-      expiresAt: expiresAt ? new Date(expiresAt) : null
-    }
+      created_by: requesterId,
+      ...(batchId && { targets: { create: { batch_id: Number(batchId) } } }),
+    },
+    include: noticeInclude,
   });
 
   await audit({ userId: requesterId, action: 'CREATE_NOTICE', entityType: 'NOTICE', entityId: notice.id });
-  return notice;
+  return mapNoticeForClient(notice);
 };
 
 const getNoticeById = async (noticeId, requester) => {
   const notice = await prisma.notice.findUnique({
-    where: { id: noticeId },
-    include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      creator: { select: { id: true, firstName: true, lastName: true, email: true } }
-    }
+    where: { id: Number(noticeId) },
+    include: noticeInclude,
   });
   if (!notice) throw new Error('Notice not found');
 
-  if (!requester?.coachingId || notice.coachingId !== requester.coachingId) {
+  if (!requester?.coachingId || Number(notice.coaching_center_id) !== Number(requester.coachingId)) {
     throw new Error('You are not authorised to view this notice');
   }
 
   if (requester.role === ROLES.STUDENT) {
-    const studentProfile = await prisma.studentProfile.findFirst({
-      where: { userId: requester.userId, coachingId: requester.coachingId }
+    const studentBatch = await prisma.batchStudent.findFirst({
+      where: { student_id: requester.userId },
     });
-
-    if (!studentProfile) {
-      throw new Error('Student profile not found');
-    }
-
-    const canView = notice.batchId === null || notice.batchId === studentProfile.batchId;
-    if (!canView) {
+    if (!studentBatch) throw new Error('Student not enrolled in any batch');
+    const targetBatchIds = notice.targets.map(t => t.batch_id);
+    if (targetBatchIds.length > 0 && !targetBatchIds.includes(studentBatch.batch_id)) {
       throw new Error('You are not authorised to view this notice');
     }
   }
 
   if (requester.role === ROLES.TEACHER) {
-    const assignedBatches = await prisma.batchTeacher.findMany({
-      where: { teacherId: requester.userId },
-      select: { batchId: true }
+    const assignments = await prisma.batchSubject.findMany({
+      where: { teacher_id: requester.userId },
+      select: { batch_id: true },
     });
-    const assignedBatchIds = new Set(assignedBatches.map((item) => item.batchId));
-    const canView = notice.batchId === null || assignedBatchIds.has(notice.batchId);
-    if (!canView) {
+    const assignedBatchIds = new Set(assignments.map(a => a.batch_id));
+    const targetBatchIds = notice.targets.map(t => t.batch_id);
+    if (targetBatchIds.length > 0 && !targetBatchIds.some(id => assignedBatchIds.has(id))) {
       throw new Error('You are not authorised to view this notice');
     }
   }
 
-  return notice;
+  return mapNoticeForClient(notice);
 };
-
-// Active notices only (not expired)
-const activeFilter = () => ({
-  OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
-});
 
 const getNoticesByCoaching = async (coachingId, batchId = null) => {
-  const whereClause = { coachingId, ...activeFilter() };
-  if (batchId) whereClause.batchId = batchId;
+  const whereClause = { coaching_center_id: Number(coachingId) };
+  if (batchId) whereClause.targets = { some: { batch_id: Number(batchId) } };
 
-  return prisma.notice.findMany({
+  const notices = await prisma.notice.findMany({
     where: whereClause,
-    orderBy: { createdAt: 'desc' },
-    include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      creator: { select: { id: true, firstName: true, lastName: true } }
-    }
+    orderBy: { created_at: 'desc' },
+    include: noticeInclude,
   });
+  return notices.map(mapNoticeForClient);
 };
 
-// Notices for a student — derive profile from JWT userId + coachingId
+// Notices for a student — broadcast + notices targeting their batch
 const getMyNotices = async (userId, coachingId) => {
-  const studentProfile = await prisma.studentProfile.findFirst({
-    where: { userId, coachingId }
+  const studentBatch = await prisma.batchStudent.findFirst({
+    where: { student_id: userId, batch: { coaching_center_id: Number(coachingId) } },
   });
-  if (!studentProfile) throw new Error('Student profile not found');
+  if (!studentBatch) throw new Error('Student not enrolled in any batch');
 
-  return prisma.notice.findMany({
+  const notices = await prisma.notice.findMany({
     where: {
-      coachingId,
-      OR: [{ batchId: studentProfile.batchId }, { batchId: null }],
-      ...activeFilter()
+      coaching_center_id: Number(coachingId),
+      OR: [
+        { targets: { none: {} } },
+        { targets: { some: { batch_id: studentBatch.batch_id } } },
+      ],
     },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      creator: { select: { id: true, firstName: true, lastName: true } }
-    }
+    orderBy: { created_at: 'desc' },
+    include: noticeInclude,
   });
+  return notices.map(mapNoticeForClient);
 };
 
-// Notices relevant to a teacher — batches they are assigned to
+// Notices relevant to a teacher — broadcast + notices for their assigned batches
 const getTeacherNotices = async (userId, coachingId) => {
-  const batchTeachers = await prisma.batchTeacher.findMany({
-    where: { teacherId: userId },
-    select: { batchId: true }
+  const assignments = await prisma.batchSubject.findMany({
+    where: { teacher_id: userId },
+    select: { batch_id: true },
   });
-  const batchIds = batchTeachers.map(bt => bt.batchId);
+  const batchIds = assignments.map(a => a.batch_id).filter(Boolean);
 
-  return prisma.notice.findMany({
+  const notices = await prisma.notice.findMany({
     where: {
-      coachingId,
-      OR: [{ batchId: { in: batchIds } }, { batchId: null }],
-      ...activeFilter()
+      coaching_center_id: Number(coachingId),
+      OR: [
+        { targets: { none: {} } },
+        { targets: { some: { batch_id: { in: batchIds } } } },
+      ],
     },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      coaching: { select: { id: true, name: true } },
-      batch: { select: { id: true, name: true } },
-      creator: { select: { id: true, firstName: true, lastName: true } }
-    }
+    orderBy: { created_at: 'desc' },
+    include: noticeInclude,
   });
+  return notices.map(mapNoticeForClient);
 };
 
 const updateNotice = async (noticeId, updateData, requesterId, requesterRole) => {
-  const notice = await prisma.notice.findUnique({ where: { id: noticeId } });
+  const notice = await prisma.notice.findUnique({ where: { id: Number(noticeId) } });
   if (!notice) throw new Error('Notice not found');
 
-  // Only the creator or an Owner can update
-  if (requesterRole !== ROLES.OWNER && notice.createdBy !== requesterId) {
+  if (requesterRole !== ROLES.OWNER && notice.created_by !== requesterId) {
     throw new Error('You are not authorised to update this notice');
   }
 
   const updated = await prisma.notice.update({
-    where: { id: noticeId },
-    data: {
-      title: updateData.title,
-      content: updateData.content,
-      expiresAt: updateData.expiresAt ? new Date(updateData.expiresAt) : undefined
-    }
+    where: { id: Number(noticeId) },
+    data: { title: updateData.title, content: updateData.content },
+    include: noticeInclude,
   });
 
-  await audit({ userId: requesterId, action: 'UPDATE_NOTICE', entityType: 'NOTICE', entityId: noticeId });
-  return updated;
+  await audit({ userId: requesterId, action: 'UPDATE_NOTICE', entityType: 'NOTICE', entityId: Number(noticeId) });
+  return mapNoticeForClient(updated);
 };
 
-// Soft-delete via expiresAt = now (immediately marks as inactive)
 const deleteNotice = async (noticeId, requesterId, requesterRole) => {
-  const notice = await prisma.notice.findUnique({ where: { id: noticeId } });
+  const notice = await prisma.notice.findUnique({ where: { id: Number(noticeId) } });
   if (!notice) throw new Error('Notice not found');
 
-  if (requesterRole !== ROLES.OWNER && notice.createdBy !== requesterId) {
+  if (requesterRole !== ROLES.OWNER && notice.created_by !== requesterId) {
     throw new Error('You are not authorised to delete this notice');
   }
 
-  // Expire it immediately rather than hard-deleting
-  await prisma.notice.update({
-    where: { id: noticeId },
-    data: { expiresAt: new Date() }
-  });
-
-  await audit({ userId: requesterId, action: 'DELETE_NOTICE', entityType: 'NOTICE', entityId: noticeId });
+  await prisma.notice.delete({ where: { id: Number(noticeId) } });
+  await audit({ userId: requesterId, action: 'DELETE_NOTICE', entityType: 'NOTICE', entityId: Number(noticeId) });
   return { message: 'Notice removed successfully' };
 };
 
@@ -207,5 +192,5 @@ module.exports = {
   getMyNotices,
   getTeacherNotices,
   updateNotice,
-  deleteNotice
+  deleteNotice,
 };
