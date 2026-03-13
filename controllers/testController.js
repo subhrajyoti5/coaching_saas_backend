@@ -96,6 +96,20 @@ const getQuestionsByTest = async (req, res) => {
   }
 };
 
+const getAttemptQuestions = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const { userId } = req.user;
+    const questions = await testService.getAttemptQuestions(testId, userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ questions });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch attempt questions',
+      message: error.message
+    });
+  }
+};
+
 const startAttempt = async (req, res) => {
   try {
     const { testId } = req.body;
@@ -236,6 +250,7 @@ module.exports = {
   getMyUpcomingTests,
   addQuestionToTest,
   getQuestionsByTest,
+  getAttemptQuestions,
   startAttempt,
   submitTest,
   getMyResults,

@@ -8,6 +8,7 @@ const {
   getMyUpcomingTests,
   addQuestionToTest,
   getQuestionsByTest,
+  getAttemptQuestions,
   startAttempt,
   submitTest,
   getMyResults,
@@ -41,6 +42,9 @@ router.post('/question', authenticateToken, teacherOrOwner, validateCreateQuesti
 
 // Get all questions for a test (Owner and Teacher can access)
 router.get('/:testId/questions', authenticateToken, teacherOrOwner, getQuestionsByTest);
+
+// Get student-safe attempt questions for a test (student-only)
+router.get('/:testId/attempt-questions', authenticateToken, studentOnly, getAttemptQuestions);
 
 // Start a test attempt (student-only)
 router.post('/start-attempt', authenticateToken, studentOnly, startAttempt);

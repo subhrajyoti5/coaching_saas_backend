@@ -23,6 +23,18 @@ const mapQuestionForClient = (question) => ({
   durationSeconds: null
 });
 
+const mapQuestionForStudent = (question) => ({
+  id: question.id,
+  testId: question.test_id,
+  questionText: question.question,
+  optionA: question.option_a,
+  optionB: question.option_b,
+  optionC: question.option_c,
+  optionD: question.option_d,
+  marks: question.marks,
+  durationSeconds: null
+});
+
 const mapTestForClient = (test) => {
   const maxScore = Array.isArray(test.questions)
     ? test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0)
@@ -293,6 +305,17 @@ const getQuestionsByTest = async (testId, requester) => {
   return questions.map(mapQuestionForClient);
 };
 
+const getAttemptQuestions = async (testId, studentId) => {
+  await startAttempt(testId, studentId);
+
+  const questions = await prisma.question.findMany({
+    where: { test_id: Number(testId) },
+    orderBy: { id: 'asc' }
+  });
+
+  return questions.map(mapQuestionForStudent);
+};
+
 const startAttempt = async (testId, studentId) => {
   const numericTestId = Number(testId);
   const numericStudentId = Number(studentId);
@@ -303,6 +326,7 @@ const startAttempt = async (testId, studentId) => {
   const now = new Date();
   if (test.start_time && now < test.start_time) throw new Error('Test has not started yet');
   if (test.end_time && now > test.end_time) throw new Error('Test window has closed');
+  if (!test.results_published) throw new Error('This test is not published yet');
 
   const batchIds = await resolveStudentBatchIds(numericStudentId, test.coaching_center_id);
   if (batchIds.length === 0) throw new Error('Student is not enrolled in any batch');
@@ -559,6 +583,7 @@ module.exports = {
   getMyUpcomingTests,
   addQuestionToTest,
   getQuestionsByTest,
+  getAttemptQuestions,
   startAttempt,
   submitTest,
   getMyResults,
