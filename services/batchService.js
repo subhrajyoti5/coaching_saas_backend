@@ -65,6 +65,28 @@ const getBatchesByCoaching = async (coachingId) => {
   });
 };
 
+const updateBatch = async (batchId, updateData, requesterId) => {
+  const existing = await prisma.batch.findFirst({ where: { id: Number(batchId) } });
+  if (!existing) throw new Error('Batch not found');
+
+  const batch = await prisma.batch.update({
+    where: { id: Number(batchId) },
+    data: {
+      name: String(updateData.name || '').trim()
+    }
+  });
+
+  await audit({
+    userId: requesterId,
+    action: 'UPDATE_BATCH',
+    entityType: 'BATCH',
+    entityId: Number(batchId),
+    metadata: { name: batch.name }
+  });
+
+  return batch;
+};
+
 const assignTeacherToBatch = async (teacherId, batchId, requesterId) => {
   const user = await prisma.user.findUnique({ where: { id: Number(teacherId) } });
   if (!user || !user.is_active) throw new Error('User not found');
@@ -216,6 +238,7 @@ module.exports = {
   createBatch,
   getBatchById,
   getBatchesByCoaching,
+  updateBatch,
   getMyStudentBatches,
   assignTeacherToBatch,
   removeTeacherFromBatch,

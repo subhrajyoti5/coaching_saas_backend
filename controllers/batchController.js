@@ -55,6 +55,22 @@ const getMyBatches = async (req, res) => {
   }
 };
 
+const updateBatch = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const batch = await batchService.updateBatch(batchId, req.body, req.user.userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+      batch
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to update batch',
+      message: error.message
+    });
+  }
+};
+
 const assignTeacherToBatch = async (req, res) => {
   try {
     const { teacherId, batchId } = req.body;
@@ -161,6 +177,7 @@ const deleteBatch = async (req, res) => {
 module.exports = {
   createBatch,
   getBatch,
+  updateBatch,
   getMyBatches,
   getBatchesByCoaching,
   assignTeacherToBatch,

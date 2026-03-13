@@ -57,6 +57,11 @@ const validateCreateBatch = [
   handleValidationErrors
 ];
 
+const validateUpdateBatch = [
+  body('name').trim().isLength({ min: 1 }).withMessage('Batch name is required'),
+  handleValidationErrors
+];
+
 const validateAssignTeacher = [
   body('teacherId').isInt({ min: 1 }).withMessage('Valid teacher ID is required'),
   body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
@@ -148,6 +153,7 @@ module.exports = {
   validateAddTeacher,
   validateAddStudent,
   validateCreateBatch,
+  validateUpdateBatch,
   validateAssignTeacher,
   validateAssignStudent,
   validateCreateTest,

@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   createBatch,
   getBatch,
+  updateBatch,
   getMyBatches,
   getBatchesByCoaching,
   assignTeacherToBatch,
@@ -16,7 +17,7 @@ const {
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOrOwner, studentOnly } = require('../middleware/roles');
 const { validateCoachingAccess, validateBatchAccess } = require('../middleware/coachingIsolation');
-const { validateCreateBatch, validateAssignTeacher, validateAssignStudent } = require('../middleware/validation');
+const { validateCreateBatch, validateUpdateBatch, validateAssignTeacher, validateAssignStudent } = require('../middleware/validation');
 
 // Protected routes
 // Create a new batch (Owner and Teacher can access)
@@ -49,6 +50,9 @@ router.get('/:batchId/students', authenticateToken, teacherOrOwner, validateBatc
 
 // Get batch by ID (Owner and Teacher can access)
 router.get('/:batchId', authenticateToken, teacherOrOwner, validateBatchAccess, getBatch);
+
+// Update batch details (Owner and Teacher can access)
+router.put('/:batchId', authenticateToken, teacherOrOwner, validateBatchAccess, validateUpdateBatch, updateBatch);
 
 // Deactivate a batch (Owner only)
 router.delete('/:batchId', authenticateToken, ownerOnly, validateBatchAccess, deleteBatch);
