@@ -52,6 +52,8 @@ const validateAddStudent = [
 const validateCreateBatch = [
   body('name').trim().isLength({ min: 1 }).withMessage('Batch name is required'),
   body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
+  body('teacherIds').optional().isArray().withMessage('teacherIds must be an array'),
+  body('teacherIds.*').optional().isInt({ min: 1 }).withMessage('Each teacherId must be a valid ID'),
   handleValidationErrors
 ];
 

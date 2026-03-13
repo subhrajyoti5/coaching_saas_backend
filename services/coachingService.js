@@ -240,7 +240,7 @@ const getTeachersByCoaching = async (coachingId) => {
   const teachers = await prisma.user.findMany({
     where: {
       coaching_center_id: Number(coachingId),
-      role: ROLES.TEACHER,
+      role: { in: [ROLES.TEACHER, ROLES.OWNER] },
       is_active: true
     }
   });
@@ -320,9 +320,57 @@ const removeStudentFromCoaching = async (userId, coachingId, requesterId) => {
     throw new Error('Student not found in this coaching center');
   }
 
-  await prisma.user.update({
-    where: { id: numericUserId },
-    data: { coaching_center_id: null }
+  const cleanupSummary = await prisma.$transaction(async (tx) => {
+    const batches = await tx.batch.findMany({
+      where: { coaching_center_id: numericCoachingId },
+      select: { id: true }
+    });
+    const batchIds = batches.map((batch) => batch.id);
+
+    const lectures = await tx.lecture.findMany({
+      where: { batch_id: { in: batchIds } },
+      select: { id: true }
+    });
+    const lectureIds = lectures.map((lecture) => lecture.id);
+
+    const [batchStudentResult, attendanceResult, testAttemptResult, feeResult] = await Promise.all([
+      tx.batchStudent.deleteMany({
+        where: {
+          student_id: numericUserId,
+          batch_id: { in: batchIds }
+        }
+      }),
+      tx.attendance.deleteMany({
+        where: {
+          student_id: numericUserId,
+          lecture_id: { in: lectureIds }
+        }
+      }),
+      tx.testAttempt.deleteMany({
+        where: {
+          student_id: numericUserId,
+          batch_id: { in: batchIds }
+        }
+      }),
+      tx.fee.deleteMany({
+        where: {
+          student_id: numericUserId,
+          batch_id: { in: batchIds }
+        }
+      })
+    ]);
+
+    await tx.user.update({
+      where: { id: numericUserId },
+      data: { coaching_center_id: null }
+    });
+
+    return {
+      batchLinksRemoved: batchStudentResult.count,
+      attendanceRemoved: attendanceResult.count,
+      attemptsRemoved: testAttemptResult.count,
+      feesRemoved: feeResult.count
+    };
   });
 
   await audit({
@@ -330,10 +378,14 @@ const removeStudentFromCoaching = async (userId, coachingId, requesterId) => {
     action: 'REMOVE_STUDENT',
     entityType: 'USER',
     entityId: numericUserId,
-    metadata: { coachingId: numericCoachingId, targetUserId: numericUserId }
+    metadata: {
+      coachingId: numericCoachingId,
+      targetUserId: numericUserId,
+      cleanupSummary
+    }
   });
 
-  return { success: true };
+  return { success: true, cleanupSummary };
 };
 
 const getCoachingStats = async (coachingId) => {

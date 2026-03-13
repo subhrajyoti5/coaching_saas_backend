@@ -2,11 +2,50 @@ const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
 
 const createBatch = async (batchData, requesterId) => {
-  const { name, coachingId } = batchData;
-  const batch = await prisma.batch.create({
-    data: { name, coaching_center_id: Number(coachingId), created_by: requesterId }
+  const { name, coachingId, teacherIds = [] } = batchData;
+  const numericCoachingId = Number(coachingId);
+  const uniqueTeacherIds = [...new Set((Array.isArray(teacherIds) ? teacherIds : []).map((id) => Number(id)).filter(Boolean))];
+
+  if (uniqueTeacherIds.length > 0) {
+    const teachers = await prisma.user.findMany({
+      where: {
+        id: { in: uniqueTeacherIds },
+        coaching_center_id: numericCoachingId,
+        role: { in: ['TEACHER', 'OWNER'] },
+        is_active: true
+      },
+      select: { id: true }
+    });
+
+    if (teachers.length !== uniqueTeacherIds.length) {
+      throw new Error('One or more selected teachers are invalid for this coaching center');
+    }
+  }
+
+  const [batch] = await prisma.$transaction(async (tx) => {
+    const createdBatch = await tx.batch.create({
+      data: { name, coaching_center_id: numericCoachingId, created_by: requesterId }
+    });
+
+    if (uniqueTeacherIds.length > 0) {
+      await tx.batchSubject.createMany({
+        data: uniqueTeacherIds.map((teacherId) => ({
+          teacher_id: teacherId,
+          batch_id: createdBatch.id
+        }))
+      });
+    }
+
+    return [createdBatch];
   });
-  await audit({ userId: requesterId, action: 'CREATE_BATCH', entityType: 'BATCH', entityId: batch.id });
+
+  await audit({
+    userId: requesterId,
+    action: 'CREATE_BATCH',
+    entityType: 'BATCH',
+    entityId: batch.id,
+    metadata: { coachingId: numericCoachingId, teacherIds: uniqueTeacherIds }
+  });
   return batch;
 };
 
@@ -134,9 +173,16 @@ const getMyStudentBatches = async (studentId, coachingId) => {
     .sort((a, b) => a.name.localeCompare(b.name));
 };
 
-const removeStudentFromBatch = async (studentId, requesterId) => {
-  await prisma.batchStudent.deleteMany({ where: { student_id: Number(studentId) } });
-  await audit({ userId: requesterId, action: 'REMOVE_STUDENT_BATCH', entityType: 'BATCH_STUDENT', entityId: Number(studentId) });
+const removeStudentFromBatch = async (studentId, batchId, requesterId) => {
+  const result = await prisma.batchStudent.deleteMany({
+    where: {
+      student_id: Number(studentId),
+      batch_id: Number(batchId)
+    }
+  });
+  if (result.count === 0) throw new Error('Student is not assigned to this batch');
+
+  await audit({ userId: requesterId, action: 'REMOVE_STUDENT_BATCH', entityType: 'BATCH_STUDENT', entityId: Number(studentId), metadata: { batchId } });
   return { message: 'Student removed from batch' };
 };
 

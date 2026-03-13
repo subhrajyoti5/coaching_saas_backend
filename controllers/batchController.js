@@ -103,8 +103,8 @@ const assignStudentToBatch = async (req, res) => {
 
 const removeStudentFromBatch = async (req, res) => {
   try {
-    const { studentId } = req.body;
-    const student = await batchService.removeStudentFromBatch(studentId, req.user.userId);
+    const { studentId, batchId } = req.body;
+    const student = await batchService.removeStudentFromBatch(studentId, batchId, req.user.userId);
     return res.status(HTTP_STATUS.SUCCESS).json({
       message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
       student

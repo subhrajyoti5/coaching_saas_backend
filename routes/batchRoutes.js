@@ -32,7 +32,7 @@ router.post('/remove-teacher', authenticateToken, teacherOrOwner, validateAssign
 router.post('/assign-student', authenticateToken, teacherOrOwner, validateAssignStudent, assignStudentToBatch);
 
 // Remove a student from a batch (Owner and Teacher can access)
-router.post('/remove-student', authenticateToken, teacherOrOwner, removeStudentFromBatch);
+router.post('/remove-student', authenticateToken, teacherOrOwner, validateAssignStudent, removeStudentFromBatch);
 
 // Get all batches for the logged-in student in selected coaching context
 router.get('/my-batches', authenticateToken, studentOnly, getMyBatches);
