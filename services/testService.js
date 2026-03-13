@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
 const toNumber = (value, name) => {
@@ -62,7 +63,82 @@ const resolveStudentBatchIds = async (userId, coachingId) => {
   return memberships.map((m) => m.batch_id).filter(Boolean);
 };
 
-const createTest = async (testData, requesterId) => {
+const resolveTeacherBatchIds = async (userId, coachingId) => {
+  const rows = await prisma.batchSubject.findMany({
+    where: {
+      teacher_id: Number(userId),
+      batch: { coaching_center_id: Number(coachingId) }
+    },
+    select: { batch_id: true },
+    distinct: ['batch_id']
+  });
+
+  return rows.map((row) => row.batch_id).filter(Boolean);
+};
+
+const ensureBatchesBelongToCoaching = async (batchIds, coachingId) => {
+  const batches = await prisma.batch.findMany({
+    where: {
+      id: { in: batchIds },
+      coaching_center_id: Number(coachingId)
+    },
+    select: { id: true }
+  });
+
+  if (batches.length !== batchIds.length) {
+    throw new Error('One or more selected batches do not belong to this coaching center');
+  }
+};
+
+const ensureRequesterCanAccessBatchIds = async (batchIds, requester, coachingId) => {
+  if (!requester || !requester.userId || !requester.role || !requester.coachingId) {
+    throw new Error('Requester context is required');
+  }
+
+  if (Number(requester.coachingId) !== Number(coachingId)) {
+    throw new Error('Unauthorized coaching access');
+  }
+
+  if (requester.role === ROLES.OWNER) {
+    return;
+  }
+
+  if (requester.role !== ROLES.TEACHER) {
+    throw new Error('Only owners and assigned teachers can manage tests');
+  }
+
+  const assignedBatchIds = await resolveTeacherBatchIds(requester.userId, coachingId);
+  const assignedSet = new Set(assignedBatchIds.map((id) => Number(id)));
+  const unauthorizedBatchIds = batchIds.filter((batchId) => !assignedSet.has(Number(batchId)));
+
+  if (unauthorizedBatchIds.length > 0) {
+    throw new Error('You can only access tests for batches assigned to you');
+  }
+};
+
+const getAuthorizedTest = async (testId, requester) => {
+  const test = await prisma.test.findUnique({
+    where: { id: Number(testId) },
+    include: {
+      coaching_center: { select: { id: true, name: true } },
+      test_batches: { include: { batch: { select: { id: true, name: true } } } },
+      questions: true
+    }
+  });
+
+  if (!test) {
+    throw new Error('Test not found');
+  }
+
+  if (requester) {
+    const batchIds = (test.test_batches || []).map((row) => row.batch_id).filter(Boolean);
+    await ensureRequesterCanAccessBatchIds(batchIds, requester, test.coaching_center_id);
+  }
+
+  return test;
+};
+
+const createTest = async (testData, requester) => {
   const { title, coachingId, batchIds, duration, startDate, endDate } = testData;
 
   const numericCoachingId = toNumber(coachingId, 'coachingId');
@@ -70,6 +146,9 @@ const createTest = async (testData, requesterId) => {
   if (uniqueBatchIds.length === 0) {
     throw new Error('At least one batch must be selected');
   }
+
+  await ensureBatchesBelongToCoaching(uniqueBatchIds, numericCoachingId);
+  await ensureRequesterCanAccessBatchIds(uniqueBatchIds, requester, numericCoachingId);
 
   const [created] = await prisma.$transaction(async (tx) => {
     const test = await tx.test.create({
@@ -79,7 +158,7 @@ const createTest = async (testData, requesterId) => {
         duration_minutes: Number(duration),
         start_time: new Date(startDate),
         end_time: new Date(endDate),
-        created_by: requesterId,
+        created_by: Number(requester.userId),
         results_published: false
       }
     });
@@ -91,31 +170,38 @@ const createTest = async (testData, requesterId) => {
     return [test];
   });
 
-  await audit({ userId: requesterId, action: 'CREATE_TEST', entityType: 'TEST', entityId: created.id });
+  await audit({ userId: Number(requester.userId), action: 'CREATE_TEST', entityType: 'TEST', entityId: created.id });
 
-  return getTestById(created.id);
+  return getTestById(created.id, requester);
 };
 
-const getTestById = async (testId) => {
-  const test = await prisma.test.findUnique({
-    where: { id: Number(testId) },
-    include: {
-      coaching_center: { select: { id: true, name: true } },
-      test_batches: { include: { batch: { select: { id: true, name: true } } } },
-      questions: true
-    }
-  });
-
-  if (!test) throw new Error('Test not found');
+const getTestById = async (testId, requester = null) => {
+  const test = await getAuthorizedTest(testId, requester);
   return mapTestForClient(test);
 };
 
-const getTestsByCoaching = async (coachingId) => {
+const getTestsByCoaching = async (coachingId, requester) => {
+  const numericCoachingId = Number(coachingId);
+  const where = { coaching_center_id: numericCoachingId };
+
+  if (requester?.role === ROLES.TEACHER) {
+    const assignedBatchIds = await resolveTeacherBatchIds(requester.userId, numericCoachingId);
+    if (assignedBatchIds.length === 0) {
+      return [];
+    }
+
+    where.test_batches = {
+      some: {
+        batch_id: { in: assignedBatchIds }
+      }
+    };
+  }
+
   const tests = await prisma.test.findMany({
-    where: { coaching_center_id: Number(coachingId) },
+    where,
     include: {
       coaching_center: { select: { id: true, name: true } },
-      test_batches: true,
+      test_batches: { include: { batch: { select: { id: true, name: true } } } },
       questions: true
     },
     orderBy: { start_time: 'asc' }
@@ -174,11 +260,10 @@ const getMyUpcomingTests = async (userId, coachingId) => {
   return [...unique.values()].sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 };
 
-const addQuestionToTest = async (questionData) => {
+const addQuestionToTest = async (questionData, requester) => {
   const { testId, questionText, optionA, optionB, optionC, optionD, correctAnswer, marks } = questionData;
 
-  const test = await prisma.test.findUnique({ where: { id: Number(testId) } });
-  if (!test) throw new Error('Test not found');
+  await getAuthorizedTest(testId, requester);
 
   const count = await prisma.question.count({ where: { test_id: Number(testId) } });
   if (count >= 30) throw new Error('A test can have a maximum of 30 questions');
@@ -199,7 +284,8 @@ const addQuestionToTest = async (questionData) => {
   return mapQuestionForClient(created);
 };
 
-const getQuestionsByTest = async (testId) => {
+const getQuestionsByTest = async (testId, requester) => {
+  await getAuthorizedTest(testId, requester);
   const questions = await prisma.question.findMany({
     where: { test_id: Number(testId) },
     orderBy: { id: 'asc' }
@@ -313,11 +399,13 @@ const submitTest = async ({ testId, answers }, userId) => {
   return result;
 };
 
-const getTeacherLeaderboard = async (testId, coachingId) => {
-  const test = await prisma.test.findFirst({
-    where: { id: Number(testId), coaching_center_id: Number(coachingId) },
-    include: { questions: true }
-  });
+const getTeacherLeaderboard = async (testId, coachingId, requester = null) => {
+  const test = requester
+    ? await getAuthorizedTest(testId, requester)
+    : await prisma.test.findFirst({
+        where: { id: Number(testId), coaching_center_id: Number(coachingId) },
+        include: { questions: true }
+      });
   if (!test) throw new Error('Test not found');
 
   const attempts = await prisma.testAttempt.findMany({
@@ -418,7 +506,8 @@ const getStudentResults = async (studentId) => {
   });
 };
 
-const getTestResults = async (testId) => {
+const getTestResults = async (testId, requester = null) => {
+  await getAuthorizedTest(testId, requester);
   const attempts = await prisma.testAttempt.findMany({
     where: { test_id: Number(testId) },
     include: {
@@ -445,18 +534,20 @@ const getTestResults = async (testId) => {
   });
 };
 
-const deactivateTest = async (testId, requesterId) => {
+const deactivateTest = async (testId, requester) => {
+  await getAuthorizedTest(testId, requester);
   const test = await prisma.test.delete({ where: { id: Number(testId) } });
-  await audit({ userId: requesterId, action: 'DEACTIVATE_TEST', entityType: 'TEST', entityId: Number(testId) });
+  await audit({ userId: Number(requester.userId), action: 'DEACTIVATE_TEST', entityType: 'TEST', entityId: Number(testId) });
   return test;
 };
 
-const publishTest = async (testId, requesterId) => {
+const publishTest = async (testId, requester) => {
+  await getAuthorizedTest(testId, requester);
   const test = await prisma.test.update({
     where: { id: Number(testId) },
     data: { results_published: true }
   });
-  await audit({ userId: requesterId, action: 'PUBLISH_TEST', entityType: 'TEST', entityId: Number(testId) });
+  await audit({ userId: Number(requester.userId), action: 'PUBLISH_TEST', entityType: 'TEST', entityId: Number(testId) });
   return mapTestForClient({ ...test, test_batches: [], questions: [], coaching_center: null });
 };
 

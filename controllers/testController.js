@@ -3,7 +3,7 @@ const { HTTP_STATUS, SUCCESS_MESSAGES } = require('../config/constants');
 
 const createTest = async (req, res) => {
   try {
-    const test = await testService.createTest(req.body, req.user.userId);
+    const test = await testService.createTest(req.body, req.user);
     return res.status(HTTP_STATUS.CREATED).json({
       message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
       test
@@ -19,7 +19,7 @@ const createTest = async (req, res) => {
 const getTest = async (req, res) => {
   try {
     const { testId } = req.params;
-    const test = await testService.getTestById(testId);
+    const test = await testService.getTestById(testId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({ test });
   } catch (error) {
     return res.status(HTTP_STATUS.NOT_FOUND).json({
@@ -32,7 +32,7 @@ const getTest = async (req, res) => {
 const getTestsByCoaching = async (req, res) => {
   try {
     const coachingId = req.coachingId || req.params.coachingId;
-    const tests = await testService.getTestsByCoaching(coachingId);
+    const tests = await testService.getTestsByCoaching(coachingId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({ tests });
   } catch (error) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -70,7 +70,7 @@ const getMyUpcomingTests = async (req, res) => {
 
 const addQuestionToTest = async (req, res) => {
   try {
-    const question = await testService.addQuestionToTest(req.body);
+    const question = await testService.addQuestionToTest(req.body, req.user);
     return res.status(HTTP_STATUS.CREATED).json({
       message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
       question
@@ -86,7 +86,7 @@ const addQuestionToTest = async (req, res) => {
 const getQuestionsByTest = async (req, res) => {
   try {
     const { testId } = req.params;
-    const questions = await testService.getQuestionsByTest(testId);
+    const questions = await testService.getQuestionsByTest(testId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({ questions });
   } catch (error) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -156,7 +156,7 @@ const getStudentResults = async (req, res) => {
 const getTestResults = async (req, res) => {
   try {
     const { testId } = req.params;
-    const results = await testService.getTestResults(testId);
+    const results = await testService.getTestResults(testId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({ results });
   } catch (error) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
@@ -170,7 +170,7 @@ const getTeacherLeaderboard = async (req, res) => {
   try {
     const { testId } = req.params;
     const coachingId = req.coachingId || req.user.coachingId;
-    const leaderboard = await testService.getTeacherLeaderboard(testId, coachingId);
+    const leaderboard = await testService.getTeacherLeaderboard(testId, coachingId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({ leaderboard });
   } catch (error) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
@@ -197,7 +197,7 @@ const getStudentLeaderboard = async (req, res) => {
 const deleteTest = async (req, res) => {
   try {
     const { testId } = req.params;
-    await testService.deactivateTest(testId, req.user.userId);
+    await testService.deactivateTest(testId, req.user);
     return res.status(HTTP_STATUS.SUCCESS).json({
       message: 'Test deactivated successfully'
     });
@@ -212,11 +212,11 @@ const deleteTest = async (req, res) => {
 const publishTest = async (req, res) => {
   try {
     const { testId } = req.params;
-    const userId = req.user.userId;
+    const user = req.user;
 
-    const test = await testService.publishTest(testId, userId);
+    const test = await testService.publishTest(testId, user);
 
-    return res.status(HTTP_STATUS.OK).json({
+    return res.status(HTTP_STATUS.SUCCESS).json({
       message: 'Test published successfully',
       test
     });

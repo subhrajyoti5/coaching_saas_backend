@@ -39,8 +39,8 @@ router.get('/my-upcoming', authenticateToken, studentOnly, getMyUpcomingTests);
 // Add a question to a test (Owner and Teacher can access)
 router.post('/question', authenticateToken, teacherOrOwner, validateCreateQuestion, addQuestionToTest);
 
-// Get all questions for a test (Owner, Teacher, and Student can access)
-router.get('/:testId/questions', authenticateToken, studentOrOwner, getQuestionsByTest);
+// Get all questions for a test (Owner and Teacher can access)
+router.get('/:testId/questions', authenticateToken, teacherOrOwner, getQuestionsByTest);
 
 // Start a test attempt (student-only)
 router.post('/start-attempt', authenticateToken, studentOnly, startAttempt);
@@ -51,8 +51,8 @@ router.post('/submit', authenticateToken, studentOnly, submitTest);
 // Get my results (extracted from JWT)
 router.get('/my-results', authenticateToken, studentOrOwner, getMyResults);
 
-// Get test by ID (Owner, Teacher, and Student can access)
-router.get('/:testId', authenticateToken, studentOrOwner, getTest);
+// Get test by ID (Owner and Teacher can access)
+router.get('/:testId', authenticateToken, teacherOrOwner, getTest);
 
 // Get test results for a specific student (Owner, Teacher can access)
 router.get('/results/student/:studentId', authenticateToken, teacherOrOwner, validateStudentAccess, getStudentResults);
