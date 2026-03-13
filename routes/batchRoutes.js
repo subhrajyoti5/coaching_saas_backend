@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   createBatch,
   getBatch,
+  getMyBatches,
   getBatchesByCoaching,
   assignTeacherToBatch,
   removeTeacherFromBatch,
@@ -13,7 +14,7 @@ const {
   deleteBatch
 } = require('../controllers/batchController');
 const { authenticateToken } = require('../middleware/auth');
-const { ownerOnly, teacherOrOwner } = require('../middleware/roles');
+const { ownerOnly, teacherOrOwner, studentOnly } = require('../middleware/roles');
 const { validateCoachingAccess, validateBatchAccess } = require('../middleware/coachingIsolation');
 const { validateCreateBatch, validateAssignTeacher, validateAssignStudent } = require('../middleware/validation');
 
@@ -33,6 +34,12 @@ router.post('/assign-student', authenticateToken, teacherOrOwner, validateAssign
 // Remove a student from a batch (Owner and Teacher can access)
 router.post('/remove-student', authenticateToken, teacherOrOwner, removeStudentFromBatch);
 
+// Get all batches for the logged-in student in selected coaching context
+router.get('/my-batches', authenticateToken, studentOnly, getMyBatches);
+
+// Get all batches for a coaching center (Owner and Teacher can access)
+router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getBatchesByCoaching);
+
 // SPECIFIC ROUTES BEFORE GENERIC :batchId ROUTES
 // Get all teachers assigned to a batch
 router.get('/:batchId/teachers', authenticateToken, teacherOrOwner, validateBatchAccess, getTeachersByBatch);
@@ -43,12 +50,7 @@ router.get('/:batchId/students', authenticateToken, teacherOrOwner, validateBatc
 // Get batch by ID (Owner and Teacher can access)
 router.get('/:batchId', authenticateToken, teacherOrOwner, validateBatchAccess, getBatch);
 
-// Get all batches for a coaching center (Owner and Teacher can access)
-router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getBatchesByCoaching);
-
 // Deactivate a batch (Owner only)
 router.delete('/:batchId', authenticateToken, ownerOnly, validateBatchAccess, deleteBatch);
-
-module.exports = router;
 
 module.exports = router;

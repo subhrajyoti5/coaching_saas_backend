@@ -65,9 +65,13 @@ const removeTeacherFromBatch = async (teacherId, batchId, requesterId) => {
 const assignStudentToBatch = async (studentId, batchId, requesterId) => {
   const student = await prisma.user.findUnique({ where: { id: Number(studentId) } });
   if (!student) throw new Error('Student not found');
+  if (student.role !== 'STUDENT') throw new Error('User is not a student');
 
   const batch = await prisma.batch.findFirst({ where: { id: Number(batchId) } });
   if (!batch) throw new Error('Batch not found');
+  if (student.coaching_center_id !== batch.coaching_center_id) {
+    throw new Error('Student is not in this coaching center');
+  }
 
   const existing = await prisma.batchStudent.findFirst({
     where: { student_id: Number(studentId), batch_id: Number(batchId) }
@@ -79,6 +83,55 @@ const assignStudentToBatch = async (studentId, batchId, requesterId) => {
   });
   await audit({ userId: requesterId, action: 'ASSIGN_STUDENT_BATCH', entityType: 'BATCH_STUDENT', entityId: assignment.id, metadata: { studentId, batchId } });
   return assignment;
+};
+
+const getMyStudentBatches = async (studentId, coachingId) => {
+  const memberships = await prisma.batchStudent.findMany({
+    where: {
+      student_id: Number(studentId),
+      batch: { coaching_center_id: Number(coachingId) }
+    },
+    include: {
+      batch: { select: { id: true, name: true, coaching_center_id: true } }
+    }
+  });
+
+  if (memberships.length === 0) return [];
+
+  const batchIds = memberships.map((membership) => membership.batch_id);
+
+  const teacherLinks = await prisma.batchSubject.findMany({
+    where: {
+      batch_id: { in: batchIds },
+      teacher_id: { not: null }
+    },
+    include: {
+      teacher: {
+        select: { id: true, name: true, email: true }
+      }
+    }
+  });
+
+  const teachersByBatch = new Map();
+  for (const link of teacherLinks) {
+    const teacher = link.teacher;
+    if (!teacher) continue;
+
+    if (!teachersByBatch.has(link.batch_id)) {
+      teachersByBatch.set(link.batch_id, new Map());
+    }
+    teachersByBatch.get(link.batch_id).set(teacher.id, teacher);
+  }
+
+  return memberships
+    .map((membership) => {
+      const teacherMap = teachersByBatch.get(membership.batch_id) || new Map();
+      return {
+        ...membership.batch,
+        teachers: [...teacherMap.values()]
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 };
 
 const removeStudentFromBatch = async (studentId, requesterId) => {
@@ -117,6 +170,7 @@ module.exports = {
   createBatch,
   getBatchById,
   getBatchesByCoaching,
+  getMyStudentBatches,
   assignTeacherToBatch,
   removeTeacherFromBatch,
   assignStudentToBatch,

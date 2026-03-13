@@ -42,6 +42,19 @@ const getBatchesByCoaching = async (req, res) => {
   }
 };
 
+const getMyBatches = async (req, res) => {
+  try {
+    const { userId, coachingId } = req.user;
+    const batches = await batchService.getMyStudentBatches(userId, coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ batches });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to fetch my batches',
+      message: error.message
+    });
+  }
+};
+
 const assignTeacherToBatch = async (req, res) => {
   try {
     const { teacherId, batchId } = req.body;
@@ -148,6 +161,7 @@ const deleteBatch = async (req, res) => {
 module.exports = {
   createBatch,
   getBatch,
+  getMyBatches,
   getBatchesByCoaching,
   assignTeacherToBatch,
   removeTeacherFromBatch,

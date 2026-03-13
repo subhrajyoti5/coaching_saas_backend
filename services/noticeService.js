@@ -116,7 +116,7 @@ const getMyNotices = async (userId, coachingId) => {
   const studentBatch = await prisma.batchStudent.findFirst({
     where: { student_id: userId, batch: { coaching_center_id: Number(coachingId) } },
   });
-  if (!studentBatch) throw new Error('Student not enrolled in any batch');
+  if (!studentBatch) return [];
 
   const notices = await prisma.notice.findMany({
     where: {
