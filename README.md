@@ -43,6 +43,8 @@ PORT=8000
 NODE_ENV=development
 ```
 
+For document uploads behind nginx, set `client_max_body_size` to match or exceed `DOCUMENT_MAX_FILE_SIZE_BYTES`; otherwise nginx may return `413 Request Entity Too Large` before the request reaches Express.
+
 5. Set up the database:
 
 ```bash
