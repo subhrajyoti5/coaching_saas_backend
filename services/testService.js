@@ -486,13 +486,15 @@ const getMyResults = async (userId, coachingId) => {
   return attempts.map((attempt) => {
     const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
     const score = Number(attempt.score || 0);
+    const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     return {
       id: attempt.id,
       testId: attempt.test_id,
       studentId: attempt.student_id,
       score,
       totalMarks,
-      percentage: totalMarks > 0 ? (score / totalMarks) * 100 : 0,
+      percentage,
+      passed: percentage >= 40,
       submittedAt: attempt.submitted_at,
       test: {
         id: attempt.test.id,
@@ -516,13 +518,15 @@ const getStudentResults = async (studentId) => {
   return attempts.map((attempt) => {
     const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
     const score = Number(attempt.score || 0);
+    const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     return {
       id: attempt.id,
       testId: attempt.test_id,
       studentId: attempt.student_id,
       score,
       totalMarks,
-      percentage: totalMarks > 0 ? (score / totalMarks) * 100 : 0,
+      percentage,
+      passed: percentage >= 40,
       submittedAt: attempt.submitted_at,
       student: { id: attempt.student?.id, name: attempt.student?.name || 'Unknown' },
       test: { id: attempt.test.id, title: attempt.test.title, startDate: attempt.test.start_time }
@@ -544,13 +548,15 @@ const getTestResults = async (testId, requester = null) => {
   return attempts.map((attempt) => {
     const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
     const score = Number(attempt.score || 0);
+    const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     return {
       id: attempt.id,
       testId: attempt.test_id,
       studentId: attempt.student_id,
       score,
       totalMarks,
-      percentage: totalMarks > 0 ? (score / totalMarks) * 100 : 0,
+      percentage,
+      passed: percentage >= 40,
       submittedAt: attempt.submitted_at,
       student: { id: attempt.student?.id, name: attempt.student?.name || 'Unknown' },
       test: { id: attempt.test.id, title: attempt.test.title }
