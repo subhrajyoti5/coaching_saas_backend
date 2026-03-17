@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { ONBOARDING } = require('./constants');
 
 const ACCESS_TOKEN_EXPIRY = '2h';
 const REFRESH_TOKEN_EXPIRY = '7d';
@@ -12,6 +13,12 @@ const generateAccessToken = (payload) => {
 const generateRefreshToken = (payload = {}) => {
   return jwt.sign({ ...payload, tokenType: 'refresh' }, process.env.JWT_SECRET, {
     expiresIn: REFRESH_TOKEN_EXPIRY
+  });
+};
+
+const generateOnboardingToken = (payload = {}) => {
+  return jwt.sign({ ...payload, tokenType: 'onboarding' }, process.env.JWT_SECRET, {
+    expiresIn: ONBOARDING.ONBOARDING_TOKEN_EXPIRY
   });
 };
 
@@ -35,6 +42,7 @@ const comparePassword = async (password, hashedPassword) => {
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
+  generateOnboardingToken,
   verifyToken,
   hashPassword,
   comparePassword,

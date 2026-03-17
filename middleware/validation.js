@@ -49,6 +49,28 @@ const validateAddStudent = [
   handleValidationErrors
 ];
 
+const validateOnboardingJoinRequest = [
+  body('role').isIn(['STUDENT', 'TEACHER']).withMessage('Role must be STUDENT or TEACHER'),
+  body('code').trim().isLength({ min: 4, max: 20 }).withMessage('Valid access code is required'),
+  handleValidationErrors
+];
+
+const validateRoleOnly = [
+  body('role').isIn(['STUDENT', 'TEACHER']).withMessage('Role must be STUDENT or TEACHER'),
+  handleValidationErrors
+];
+
+const validateDeactivateCode = [
+  body('codeId').isInt({ min: 1 }).withMessage('Valid codeId is required'),
+  handleValidationErrors
+];
+
+const validateApproveSelectedStudents = [
+  body('requestIds').isArray({ min: 1 }).withMessage('requestIds must be a non-empty array'),
+  body('requestIds.*').isInt({ min: 1 }).withMessage('Each requestId must be a valid integer'),
+  handleValidationErrors
+];
+
 const validateCreateBatch = [
   body('name').trim().isLength({ min: 1 }).withMessage('Batch name is required'),
   body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
@@ -152,6 +174,10 @@ module.exports = {
   validateCreateCoaching,
   validateAddTeacher,
   validateAddStudent,
+  validateOnboardingJoinRequest,
+  validateRoleOnly,
+  validateDeactivateCode,
+  validateApproveSelectedStudents,
   validateCreateBatch,
   validateUpdateBatch,
   validateAssignTeacher,

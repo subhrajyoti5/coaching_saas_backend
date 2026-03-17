@@ -1,5 +1,5 @@
 const prisma = require('../config/database');
-const { generateAccessToken, generateRefreshToken } = require('../config/auth');
+const { generateAccessToken, generateRefreshToken, generateOnboardingToken } = require('../config/auth');
 const { audit } = require('../utils/auditLogger');
 
 const splitName = (name = '') => {
@@ -94,10 +94,30 @@ const loginWithGoogle = async (token) => {
 
     const googleEmail = payload.email;
 
-    user = await prisma.user.findUnique({ where: { email: googleEmail } });
+    user = await prisma.user.findFirst({
+      where: {
+        email: googleEmail,
+        is_active: true
+      }
+    });
 
-    if (!user || !user.is_active) {
-      throw new Error('Access denied. This email is not registered by any coaching center.');
+    if (!user) {
+      const onboardingToken = generateOnboardingToken({
+        email: googleEmail,
+        name: payload.name || googleEmail,
+        provider: 'google'
+      });
+
+      return {
+        onboardingRequired: true,
+        onboardingToken,
+        profile: {
+          email: googleEmail,
+          name: payload.name || googleEmail,
+          firstName: splitName(payload.name || '').firstName,
+          lastName: splitName(payload.name || '').lastName
+        }
+      };
     }
 
     await prisma.user.update({

@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config({ override: true });
 
 const app = express();
+const { startJoinRequestExpiryJob, stopJoinRequestExpiryJob } = require('./services/joinRequestExpiryJob');
 
 // Trust proxy - required when behind reverse proxy (Nginx, load balancer, etc)
 // This tells Express to trust X-Forwarded-For header from the proxy
@@ -40,6 +41,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/onboarding', require('./routes/onboardingRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/coaching', require('./routes/coachingRoutes'));
 app.use('/api/batch', require('./routes/batchRoutes'));
@@ -76,6 +78,7 @@ app.use((err, req, res, next) => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down gracefully...');
+  stopJoinRequestExpiryJob();
   await prisma.$disconnect();
   process.exit(0);
 });
@@ -84,6 +87,7 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  startJoinRequestExpiryJob();
 });
 
 module.exports = app;

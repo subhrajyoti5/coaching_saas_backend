@@ -18,6 +18,8 @@ model CoachingCenter {
   subjects              Subject[]
   tests                 Test[]
   notices               Notice[]
+  access_codes          AccessCode[]
+  join_requests         JoinRequest[]
 
   @@map("coaching_centers")
 }
@@ -52,7 +54,7 @@ model CoachingSubscription {
 model User {
   id                Int               @id @default(autoincrement())
   name              String
-  email             String            @unique
+  email             String
   role              String
   coaching_center_id Int?
   is_active         Boolean?          @default(true)
@@ -74,7 +76,44 @@ model User {
   documents         Document[]        @relation("DocumentUploadedBy")
 
   @@index([coaching_center_id], map: "idx_users_center")
+  @@unique([email, coaching_center_id], map: "uniq_users_email_center")
   @@map("users")
+}
+
+model AccessCode {
+  id                 Int            @id @default(autoincrement())
+  code               String         @unique
+  role               String
+  coaching_center_id Int
+  expires_at         DateTime
+  is_active          Boolean        @default(true)
+  created_at         DateTime       @default(now())
+
+  coaching_center    CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([coaching_center_id, role, is_active, expires_at], map: "idx_access_codes_center_role_active")
+  @@map("access_codes")
+}
+
+model JoinRequest {
+  id                 Int            @id @default(autoincrement())
+  name               String
+  email              String
+  role               String
+  coaching_center_id Int
+  status             String         @default("PENDING")
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
+  expires_at         DateTime
+
+  coaching_center    CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+
+  @@unique([email, coaching_center_id, role])
+  @@index([status])
+  @@index([expires_at])
+  @@index([coaching_center_id, role, status, created_at], map: "idx_join_requests_owner_queue")
+  @@map("join_requests")
 }
 
 model Batch {

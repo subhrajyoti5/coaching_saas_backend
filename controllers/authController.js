@@ -9,6 +9,13 @@ const googleLogin = async (req, res) => {
     const { token } = req.body;
     const result = await authService.loginWithGoogle(token);
 
+    if (result.onboardingRequired) {
+      return res.status(HTTP_STATUS.SUCCESS).json({
+        message: 'Google login successful. Complete onboarding to request access.',
+        ...result
+      });
+    }
+
     return res.status(HTTP_STATUS.SUCCESS).json({
       message: 'Google login successful',
       ...result
