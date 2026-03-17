@@ -28,7 +28,7 @@ CREATE TABLE coaching_subscriptions (
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
+    email TEXT NOT NULL,
     role TEXT CHECK (role IN ('OWNER','TEACHER','STUDENT')) NOT NULL,
     coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
     is_active BOOLEAN DEFAULT TRUE,
@@ -37,6 +37,38 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_center ON users(coaching_center_id);
+CREATE UNIQUE INDEX uniq_users_email_center ON users(email, coaching_center_id);
+
+CREATE TABLE access_codes (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    role TEXT CHECK (role IN ('STUDENT','TEACHER')) NOT NULL,
+    coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    expires_at TIMESTAMP NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_access_codes_center_role_active_expiry
+ON access_codes(coaching_center_id, role, is_active, expires_at);
+
+CREATE TABLE join_requests (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT CHECK (role IN ('STUDENT','TEACHER')) NOT NULL,
+    coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    status TEXT CHECK (status IN ('PENDING','APPROVED','REJECTED','EXPIRED')) NOT NULL DEFAULT 'PENDING',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    UNIQUE(email, coaching_center_id, role)
+);
+
+CREATE INDEX idx_join_requests_status ON join_requests(status);
+CREATE INDEX idx_join_requests_expires_at ON join_requests(expires_at);
+CREATE INDEX idx_join_requests_owner_queue
+ON join_requests(coaching_center_id, role, status, created_at);
 
 CREATE TABLE batches (
     id SERIAL PRIMARY KEY,
