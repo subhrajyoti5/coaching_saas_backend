@@ -13,6 +13,15 @@ const isMissingOnboardingTableError = (error) => {
   );
 };
 
+const throwIfMissingOnboardingTables = (error) => {
+  const message = String(error?.message || '');
+  if (message.includes('does not exist in the current database')
+      && (message.includes('public.join_requests') || message.includes('public.access_codes'))) {
+    throw new Error('Onboarding tables not yet initialized in database. Please contact support.');
+  }
+  throw error;
+};
+
 const withMissingTableFallback = async (operation, fallbackValue) => {
   try {
     return await operation();
@@ -82,28 +91,33 @@ const generateAccessCode = async ({ ownerId, coachingId, role }) => {
 
   const expiresAt = new Date(Date.now() + ONBOARDING.ACCESS_CODE_TTL_MINUTES * 60 * 1000);
 
-  const createdCode = await prisma.$transaction(async (tx) => {
-    await tx.accessCode.updateMany({
-      where: {
-        coaching_center_id: numericCoachingId,
-        role: normalizedRole,
-        is_active: true
-      },
-      data: {
-        is_active: false
-      }
-    });
+  let createdCode;
+  try {
+    createdCode = await prisma.$transaction(async (tx) => {
+      await tx.accessCode.updateMany({
+        where: {
+          coaching_center_id: numericCoachingId,
+          role: normalizedRole,
+          is_active: true
+        },
+        data: {
+          is_active: false
+        }
+      });
 
-    return tx.accessCode.create({
-      data: {
-        code: buildCode(),
-        role: normalizedRole,
-        coaching_center_id: numericCoachingId,
-        expires_at: expiresAt,
-        is_active: true
-      }
+      return tx.accessCode.create({
+        data: {
+          code: buildCode(),
+          role: normalizedRole,
+          coaching_center_id: numericCoachingId,
+          expires_at: expiresAt,
+          is_active: true
+        }
+      });
     });
-  });
+  } catch (error) {
+    throwIfMissingOnboardingTables(error);
+  }
 
   await audit({
     userId: ownerId,
@@ -193,35 +207,50 @@ const createJoinRequest = async ({ onboardingUser, role, code }) => {
   }
 
   const now = new Date();
-  const accessCode = await prisma.accessCode.findFirst({
-    where: {
-      code: String(code || '').trim().toUpperCase(),
-      role: normalizedRole,
-      is_active: true,
-      expires_at: { gt: now }
-    }
-  });
+  let accessCode;
+  try {
+    accessCode = await prisma.accessCode.findFirst({
+      where: {
+        code: String(code || '').trim().toUpperCase(),
+        role: normalizedRole,
+        is_active: true,
+        expires_at: { gt: now }
+      }
+    });
+  } catch (error) {
+    throwIfMissingOnboardingTables(error);
+  }
 
   if (!accessCode) {
     throw new Error('Invalid, expired, or inactive access code');
   }
 
-  const existing = await prisma.joinRequest.findUnique({
-    where: {
-      email_coaching_center_id_role: {
-        email,
-        coaching_center_id: accessCode.coaching_center_id,
-        role: normalizedRole
+  let existing;
+  try {
+    existing = await prisma.joinRequest.findUnique({
+      where: {
+        email_coaching_center_id_role: {
+          email,
+          coaching_center_id: accessCode.coaching_center_id,
+          role: normalizedRole
+        }
       }
-    }
-  });
+    });
+  } catch (error) {
+    throwIfMissingOnboardingTables(error);
+  }
 
   if (existing) {
     if (existing.status === JOIN_REQUEST_STATUS.PENDING && existing.expires_at < now) {
-      const forcedExpired = await prisma.joinRequest.update({
-        where: { id: existing.id },
-        data: { status: JOIN_REQUEST_STATUS.EXPIRED }
-      });
+      let forcedExpired;
+      try {
+        forcedExpired = await prisma.joinRequest.update({
+          where: { id: existing.id },
+          data: { status: JOIN_REQUEST_STATUS.EXPIRED }
+        });
+      } catch (error) {
+        throwIfMissingOnboardingTables(error);
+      }
 
       return {
         request: toRequestPayload(forcedExpired),
@@ -241,15 +270,20 @@ const createJoinRequest = async ({ onboardingUser, role, code }) => {
       };
     }
 
-    const recreated = await prisma.joinRequest.update({
-      where: { id: existing.id },
-      data: {
-        name,
-        status: JOIN_REQUEST_STATUS.PENDING,
-        created_at: now,
-        expires_at: new Date(now.getTime() + ONBOARDING.JOIN_REQUEST_TTL_HOURS * 60 * 60 * 1000)
-      }
-    });
+    let recreated;
+    try {
+      recreated = await prisma.joinRequest.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          status: JOIN_REQUEST_STATUS.PENDING,
+          created_at: now,
+          expires_at: new Date(now.getTime() + ONBOARDING.JOIN_REQUEST_TTL_HOURS * 60 * 60 * 1000)
+        }
+      });
+    } catch (error) {
+      throwIfMissingOnboardingTables(error);
+    }
 
     await audit({
       userId: null,
@@ -266,16 +300,21 @@ const createJoinRequest = async ({ onboardingUser, role, code }) => {
     };
   }
 
-  const created = await prisma.joinRequest.create({
-    data: {
-      name,
-      email,
-      role: normalizedRole,
-      coaching_center_id: accessCode.coaching_center_id,
-      status: JOIN_REQUEST_STATUS.PENDING,
-      expires_at: new Date(now.getTime() + ONBOARDING.JOIN_REQUEST_TTL_HOURS * 60 * 60 * 1000)
-    }
-  });
+  let created;
+  try {
+    created = await prisma.joinRequest.create({
+      data: {
+        name,
+        email,
+        role: normalizedRole,
+        coaching_center_id: accessCode.coaching_center_id,
+        status: JOIN_REQUEST_STATUS.PENDING,
+        expires_at: new Date(now.getTime() + ONBOARDING.JOIN_REQUEST_TTL_HOURS * 60 * 60 * 1000)
+      }
+    });
+  } catch (error) {
+    throwIfMissingOnboardingTables(error);
+  }
 
   await audit({
     userId: null,
