@@ -5,6 +5,25 @@ const { audit } = require('../utils/auditLogger');
 
 const DEFAULT_CODE_LENGTH = 6;
 
+const isMissingOnboardingTableError = (error) => {
+  const message = String(error?.message || '');
+  return (
+    message.includes('does not exist in the current database')
+    && (message.includes('public.join_requests') || message.includes('public.access_codes'))
+  );
+};
+
+const withMissingTableFallback = async (operation, fallbackValue) => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isMissingOnboardingTableError(error)) {
+      return fallbackValue;
+    }
+    throw error;
+  }
+};
+
 const normalizeRole = (role) => String(role || '').trim().toUpperCase();
 
 const isValidRole = (role) => {
@@ -113,14 +132,17 @@ const getActiveAccessCodes = async ({ coachingId }) => {
   const numericCoachingId = Number(coachingId);
   const now = new Date();
 
-  const codes = await prisma.accessCode.findMany({
-    where: {
-      coaching_center_id: numericCoachingId,
-      is_active: true,
-      expires_at: { gt: now }
-    },
-    orderBy: { created_at: 'desc' }
-  });
+  const codes = await withMissingTableFallback(
+    () => prisma.accessCode.findMany({
+      where: {
+        coaching_center_id: numericCoachingId,
+        is_active: true,
+        expires_at: { gt: now }
+      },
+      orderBy: { created_at: 'desc' }
+    }),
+    []
+  );
 
   return codes.map((code) => ({
     id: code.id,
@@ -276,10 +298,13 @@ const getJoinRequestStatus = async ({ onboardingUser }) => {
     throw new Error('Onboarding token email is missing');
   }
 
-  const requests = await prisma.joinRequest.findMany({
-    where: { email },
-    orderBy: { created_at: 'desc' }
-  });
+  const requests = await withMissingTableFallback(
+    () => prisma.joinRequest.findMany({
+      where: { email },
+      orderBy: { created_at: 'desc' }
+    }),
+    []
+  );
 
   return requests.map(toRequestPayload);
 };
@@ -287,14 +312,17 @@ const getJoinRequestStatus = async ({ onboardingUser }) => {
 const getPendingRequests = async ({ coachingId, role }) => {
   const normalizedRole = role ? normalizeRole(role) : undefined;
 
-  const requests = await prisma.joinRequest.findMany({
-    where: {
-      coaching_center_id: Number(coachingId),
-      status: JOIN_REQUEST_STATUS.PENDING,
-      ...(normalizedRole ? { role: normalizedRole } : {})
-    },
-    orderBy: { created_at: 'asc' }
-  });
+  const requests = await withMissingTableFallback(
+    () => prisma.joinRequest.findMany({
+      where: {
+        coaching_center_id: Number(coachingId),
+        status: JOIN_REQUEST_STATUS.PENDING,
+        ...(normalizedRole ? { role: normalizedRole } : {})
+      },
+      orderBy: { created_at: 'asc' }
+    }),
+    []
+  );
 
   return requests.map(toRequestPayload);
 };
@@ -490,15 +518,18 @@ const approveStudentsBulk = async ({ ownerId, coachingId, requestIds, approveAll
 };
 
 const expirePendingJoinRequests = async () => {
-  const result = await prisma.joinRequest.updateMany({
-    where: {
-      status: JOIN_REQUEST_STATUS.PENDING,
-      expires_at: { lt: new Date() }
-    },
-    data: {
-      status: JOIN_REQUEST_STATUS.EXPIRED
-    }
-  });
+  const result = await withMissingTableFallback(
+    () => prisma.joinRequest.updateMany({
+      where: {
+        status: JOIN_REQUEST_STATUS.PENDING,
+        expires_at: { lt: new Date() }
+      },
+      data: {
+        status: JOIN_REQUEST_STATUS.EXPIRED
+      }
+    }),
+    { count: 0 }
+  );
 
   return result.count;
 };
