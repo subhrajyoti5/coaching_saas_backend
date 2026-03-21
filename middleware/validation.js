@@ -74,13 +74,15 @@ const validateApproveSelectedStudents = [
 const validateCreateBatch = [
   body('name').trim().isLength({ min: 1 }).withMessage('Batch name is required'),
   body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
+  body('price').isInt({ min: 0 }).withMessage('Batch price must be a non-negative integer'),
   body('teacherIds').optional().isArray().withMessage('teacherIds must be an array'),
   body('teacherIds.*').optional().isInt({ min: 1 }).withMessage('Each teacherId must be a valid ID'),
   handleValidationErrors
 ];
 
 const validateUpdateBatch = [
-  body('name').trim().isLength({ min: 1 }).withMessage('Batch name is required'),
+  body('name').optional().trim().isLength({ min: 1 }).withMessage('Batch name cannot be empty'),
+  body('price').optional().isInt({ min: 0 }).withMessage('Batch price must be a non-negative integer'),
   handleValidationErrors
 ];
 
@@ -125,6 +127,19 @@ const validateCreateFee = [
   body('studentId').isInt({ min: 1 }).withMessage('Valid student ID is required'),
   body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   body('amount').isFloat({ min: 0 }).withMessage('Amount must be non-negative'),
+  handleValidationErrors
+];
+
+const validateCreatePaymentClaim = [
+  body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
+  body('note').optional({ nullable: true }).isString().withMessage('note must be a string'),
+  body('proofUrl').optional({ nullable: true }).isString().withMessage('proofUrl must be a string'),
+  body('amount').not().exists().withMessage('Amount is system-generated from batch price'),
+  handleValidationErrors
+];
+
+const validateRejectPaymentClaim = [
+  body('reason').optional({ nullable: true }).isString().withMessage('reason must be a string'),
   handleValidationErrors
 ];
 
@@ -185,6 +200,8 @@ module.exports = {
   validateCreateTest,
   validateCreateQuestion,
   validateCreateFee,
+  validateCreatePaymentClaim,
+  validateRejectPaymentClaim,
   validateCreateNotice,
   validateMarkBatchAttendance,
   validateUpdateAttendance,

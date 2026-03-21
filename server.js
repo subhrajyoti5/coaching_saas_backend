@@ -46,6 +46,7 @@ app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/coaching', require('./routes/coachingRoutes'));
 app.use('/api/batch', require('./routes/batchRoutes'));
 app.use('/api/fees', require('./routes/feeRoutes'));
+app.use('/api/payment-claims', require('./routes/paymentClaimRoutes'));
 app.use('/api/tests', require('./routes/testRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
 app.use('/api/attendance', require('./routes/attendanceRoutes'));

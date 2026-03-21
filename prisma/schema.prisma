@@ -72,6 +72,9 @@ model User {
   attempts          TestAttempt[]     @relation("TestAttemptStudent")
   fees              Fee[]             @relation("FeeStudent")
   payments_recorded Payment[]         @relation("PaymentRecordedBy")
+  created_claims    PaymentClaim[]    @relation("ClaimCreatedBy")
+  verified_claims   PaymentClaim[]    @relation("ClaimVerifiedBy")
+  approved_claims   PaymentClaim[]    @relation("ClaimApprovedBy")
   created_notices   Notice[]          @relation("NoticeCreatedBy")
   documents         Document[]        @relation("DocumentUploadedBy")
 
@@ -120,6 +123,7 @@ model Batch {
   id                Int               @id @default(autoincrement())
   name              String
   coaching_center_id Int?
+  price             Int               @default(0)
   created_by        Int?
   created_at        DateTime?         @default(now()) @db.Timestamp(6)
 
@@ -132,6 +136,7 @@ model Batch {
   test_batches      TestBatch[]
   attempts          TestAttempt[]
   fees              Fee[]
+  payment_claims    PaymentClaim[]
   notice_targets    NoticeTarget[]
   documents         Document[]
 
@@ -342,6 +347,35 @@ model Payment {
 
   @@index([fee_id], map: "idx_payments_fee")
   @@map("payments")
+}
+
+model PaymentClaim {
+  id                 Int       @id @default(autoincrement())
+  student_id         Int
+  batch_id           Int
+  coaching_center_id Int
+  amount             Int
+  expected_amount    Int
+  status             String    @default("PENDING")
+  note               String?
+  proof_url          String?
+  verified_by        Int?
+  verified_at        DateTime? @db.Timestamp(6)
+  approved_by        Int?
+  approved_at        DateTime? @db.Timestamp(6)
+  rejected_reason    String?
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @updatedAt @db.Timestamp(6)
+
+  student            User      @relation("ClaimCreatedBy", fields: [student_id], references: [id])
+  batch              Batch     @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  verifier           User?     @relation("ClaimVerifiedBy", fields: [verified_by], references: [id])
+  approver           User?     @relation("ClaimApprovedBy", fields: [approved_by], references: [id])
+
+  @@index([student_id], map: "idx_payment_claims_student")
+  @@index([coaching_center_id, status], map: "idx_payment_claims_coaching_status")
+  @@index([batch_id], map: "idx_payment_claims_batch")
+  @@map("payment_claims")
 }
 
 model Notice {

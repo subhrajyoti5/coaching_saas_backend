@@ -74,6 +74,7 @@ CREATE TABLE batches (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    price INTEGER NOT NULL DEFAULT 0,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -200,6 +201,25 @@ CREATE TABLE payments (
     recorded_by INTEGER REFERENCES users(id)
 );
 
+CREATE TABLE payment_claims (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL REFERENCES users(id),
+    batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    amount INTEGER NOT NULL,
+    expected_amount INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    note TEXT,
+    proof_url TEXT,
+    verified_by INTEGER REFERENCES users(id),
+    verified_at TIMESTAMP,
+    approved_by INTEGER REFERENCES users(id),
+    approved_at TIMESTAMP,
+    rejected_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE notices (
     id SERIAL PRIMARY KEY,
     title TEXT,
@@ -232,3 +252,6 @@ CREATE INDEX idx_subjects_center ON subjects(coaching_center_id);
 CREATE INDEX idx_tests_subject ON tests(subject_id);
 CREATE INDEX idx_test_answers_attempt ON test_answers(attempt_id);
 CREATE INDEX idx_payments_fee ON payments(fee_id);
+CREATE INDEX idx_payment_claims_student ON payment_claims(student_id);
+CREATE INDEX idx_payment_claims_coaching_status ON payment_claims(coaching_center_id, status);
+CREATE INDEX idx_payment_claims_batch ON payment_claims(batch_id);

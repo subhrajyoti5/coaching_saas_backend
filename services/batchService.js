@@ -2,9 +2,14 @@ const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
 
 const createBatch = async (batchData, requesterId) => {
-  const { name, coachingId, teacherIds = [] } = batchData;
+  const { name, coachingId, teacherIds = [], price } = batchData;
   const numericCoachingId = Number(coachingId);
+  const numericPrice = Number(price);
   const uniqueTeacherIds = [...new Set((Array.isArray(teacherIds) ? teacherIds : []).map((id) => Number(id)).filter(Boolean))];
+
+  if (!Number.isInteger(numericPrice) || numericPrice < 0) {
+    throw new Error('Batch price must be a non-negative integer');
+  }
 
   if (uniqueTeacherIds.length > 0) {
     const teachers = await prisma.user.findMany({
@@ -24,7 +29,7 @@ const createBatch = async (batchData, requesterId) => {
 
   const [batch] = await prisma.$transaction(async (tx) => {
     const createdBatch = await tx.batch.create({
-      data: { name, coaching_center_id: numericCoachingId, created_by: requesterId }
+      data: { name, coaching_center_id: numericCoachingId, created_by: requesterId, price: numericPrice }
     });
 
     if (uniqueTeacherIds.length > 0) {
@@ -44,7 +49,7 @@ const createBatch = async (batchData, requesterId) => {
     action: 'CREATE_BATCH',
     entityType: 'BATCH',
     entityId: batch.id,
-    metadata: { coachingId: numericCoachingId, teacherIds: uniqueTeacherIds }
+    metadata: { coachingId: numericCoachingId, teacherIds: uniqueTeacherIds, price: numericPrice }
   });
   return batch;
 };
@@ -69,11 +74,30 @@ const updateBatch = async (batchId, updateData, requesterId) => {
   const existing = await prisma.batch.findFirst({ where: { id: Number(batchId) } });
   if (!existing) throw new Error('Batch not found');
 
+  const safeData = {};
+  if (Object.prototype.hasOwnProperty.call(updateData, 'name')) {
+    const trimmedName = String(updateData.name || '').trim();
+    if (!trimmedName) {
+      throw new Error('Batch name is required');
+    }
+    safeData.name = trimmedName;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updateData, 'price')) {
+    const numericPrice = Number(updateData.price);
+    if (!Number.isInteger(numericPrice) || numericPrice < 0) {
+      throw new Error('Batch price must be a non-negative integer');
+    }
+    safeData.price = numericPrice;
+  }
+
+  if (Object.keys(safeData).length === 0) {
+    throw new Error('Nothing to update');
+  }
+
   const batch = await prisma.batch.update({
     where: { id: Number(batchId) },
-    data: {
-      name: String(updateData.name || '').trim()
-    }
+    data: safeData
   });
 
   await audit({
@@ -81,7 +105,7 @@ const updateBatch = async (batchId, updateData, requesterId) => {
     action: 'UPDATE_BATCH',
     entityType: 'BATCH',
     entityId: Number(batchId),
-    metadata: { name: batch.name }
+    metadata: { name: batch.name, price: batch.price }
   });
 
   return batch;

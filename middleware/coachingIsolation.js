@@ -142,8 +142,51 @@ const validateStudentAccess = async (req, res, next) => {
   }
 };
 
+const validateClaimAccess = async (req, res, next) => {
+  try {
+    const claimId = req.params.claimId || req.body.claimId;
+    const coachingId = req.user.coachingId;
+
+    if (!claimId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Claim ID required',
+        message: 'Claim ID must be provided in the request'
+      });
+    }
+
+    const claim = await prisma.paymentClaim.findFirst({
+      where: { id: Number(claimId) }
+    });
+
+    if (!claim) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        error: ERROR_MESSAGES.RESOURCE_NOT_FOUND,
+        message: 'Payment claim not found'
+      });
+    }
+
+    if (coachingId && claim.coaching_center_id !== Number(coachingId)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        error: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+        message: 'You do not have access to this payment claim'
+      });
+    }
+
+    req.claimId = Number(claimId);
+    req.coachingId = claim.coaching_center_id;
+    next();
+  } catch (error) {
+    console.error('Claim access validation error:', error);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Validation error',
+      message: 'An error occurred during claim access validation'
+    });
+  }
+};
+
 module.exports = {
   validateCoachingAccess,
   validateBatchAccess,
-  validateStudentAccess
+  validateStudentAccess,
+  validateClaimAccess
 };
