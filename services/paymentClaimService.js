@@ -130,8 +130,8 @@ const approveClaim = async (claimId, requesterId) => {
   });
 
   if (!existing) throw new Error('Payment claim not found');
-  if (existing.status !== CLAIM_STATUS.VERIFIED) {
-    throw new Error('Only verified claims can be approved');
+  if (![CLAIM_STATUS.PENDING, CLAIM_STATUS.VERIFIED].includes(existing.status)) {
+    throw new Error('Only pending or verified claims can be approved');
   }
 
   if (Number(existing.amount) !== Number(existing.expected_amount)) {

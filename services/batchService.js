@@ -177,7 +177,7 @@ const getMyStudentBatches = async (studentId, coachingId) => {
       batch: { coaching_center_id: Number(coachingId) }
     },
     include: {
-      batch: { select: { id: true, name: true, coaching_center_id: true } }
+      batch: { select: { id: true, name: true, coaching_center_id: true, price: true } }
     }
   });
 
