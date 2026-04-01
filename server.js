@@ -35,6 +35,9 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
+// Razorpay webhook requires raw body for signature verification.
+app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '1mb' }));
+
 // Payload size limit (especially for exams/assignments)
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
@@ -52,6 +55,8 @@ app.use('/api/notices', require('./routes/noticeRoutes'));
 app.use('/api/attendance', require('./routes/attendanceRoutes'));
 app.use('/api/drive', require('./routes/driveRoutes'));
 app.use('/api/documents', require('./routes/documentRoutes'));
+app.use('/api/subscriptions', require('./routes/subscriptionRoutes'));
+app.use('/api/webhooks', require('./routes/webhookRoutes'));
 
 // Health check endpoint
 app.get('/', (req, res) => {

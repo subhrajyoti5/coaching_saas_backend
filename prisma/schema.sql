@@ -22,7 +22,17 @@ CREATE TABLE coaching_subscriptions (
     plan_id INTEGER REFERENCES plans(id),
     start_date DATE,
     end_date DATE,
-    status TEXT
+    status TEXT,
+    razorpay_subscription_id TEXT UNIQUE,
+    razorpay_plan_id TEXT,
+    razorpay_customer_id TEXT,
+    current_start TIMESTAMP,
+    current_end TIMESTAMP,
+    grace_end TIMESTAMP,
+    cancel_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
+    payment_fail_count INTEGER DEFAULT 0,
+    metadata JSONB
 );
 
 CREATE TABLE users (
@@ -33,7 +43,14 @@ CREATE TABLE users (
     coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMP
+    last_login TIMESTAMP,
+    trial_active BOOLEAN DEFAULT FALSE,
+    trial_end TIMESTAMP,
+    subscription_status TEXT DEFAULT 'inactive',
+    subscription_id TEXT,
+    current_period_end TIMESTAMP,
+    grace_period_end TIMESTAMP,
+    plan_type TEXT DEFAULT 'basic'
 );
 
 CREATE INDEX idx_users_center ON users(coaching_center_id);

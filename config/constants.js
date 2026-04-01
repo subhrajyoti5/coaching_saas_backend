@@ -31,6 +31,23 @@ const ATTEMPT_STATUS = {
   SUBMITTED: 'SUBMITTED'
 };
 
+const SUBSCRIPTION_STATUS = {
+  INACTIVE: 'inactive',
+  ACTIVE: 'active',
+  PAST_DUE: 'past_due',
+  CANCELLED: 'cancelled'
+};
+
+const WEBHOOK_EVENTS = {
+  SUBSCRIPTION_ACTIVATED: 'subscription.activated',
+  SUBSCRIPTION_CHARGED: 'subscription.charged',
+  PAYMENT_FAILED: 'payment.failed',
+  SUBSCRIPTION_CANCELLED: 'subscription.cancelled',
+  SUBSCRIPTION_PAUSED: 'subscription.paused',
+  SUBSCRIPTION_RESUMED: 'subscription.resumed',
+  SUBSCRIPTION_COMPLETED: 'subscription.completed'
+};
+
 const HTTP_STATUS = {
   SUCCESS: 200,
   CREATED: 201,
@@ -69,6 +86,8 @@ module.exports = {
   ONBOARDING,
   PAYMENT_METHODS,
   ATTEMPT_STATUS,
+  SUBSCRIPTION_STATUS,
+  WEBHOOK_EVENTS,
   HTTP_STATUS,
   ERROR_MESSAGES,
   SUCCESS_MESSAGES

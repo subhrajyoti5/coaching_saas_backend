@@ -36,8 +36,11 @@ const mapUserSummary = (user) => {
 
 const createCoaching = async (coachingData, creatorId) => {
   const { name } = coachingData;
+  const trialEnd = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
 
   const coaching = await prisma.$transaction(async (tx) => {
+    const creator = await tx.user.findUnique({ where: { id: creatorId } });
+
     const newCoaching = await tx.coachingCenter.create({
       data: {
         name,
@@ -49,7 +52,11 @@ const createCoaching = async (coachingData, creatorId) => {
       where: { id: creatorId },
       data: {
         role: ROLES.OWNER,
-        coaching_center_id: newCoaching.id
+        coaching_center_id: newCoaching.id,
+        trial_active: creator?.trial_end ? creator.trial_active : true,
+        trial_end: creator?.trial_end || trialEnd,
+        subscription_status: creator?.subscription_status || 'inactive',
+        plan_type: creator?.plan_type || 'basic'
       }
     });
 

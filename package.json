@@ -35,7 +35,8 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
-    "pg": "^8.19.0"
+    "pg": "^8.19.0",
+    "razorpay": "^2.9.6"
   },
   "devDependencies": {
     "eslint": "^10.0.2",
