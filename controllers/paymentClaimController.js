@@ -90,7 +90,15 @@ const getMyPaymentClaims = async (req, res) => {
 const getCoachingPaymentClaims = async (req, res) => {
   try {
     const coachingId = req.coachingId || req.params.coachingId;
-    const claims = await paymentClaimService.getCoachingClaims(coachingId, req.query.status);
+    const isTeacher = req.user.role === 'TEACHER';
+    const teacherId = isTeacher ? req.user.userId : null;
+    
+    const claims = await paymentClaimService.getCoachingClaims(
+      coachingId,
+      req.query.status,
+      teacherId,
+      isTeacher
+    );
     return res.status(HTTP_STATUS.SUCCESS).json({ claims });
   } catch (error) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({

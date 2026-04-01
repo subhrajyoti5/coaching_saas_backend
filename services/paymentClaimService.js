@@ -208,12 +208,42 @@ const getMyClaims = async (studentId) => {
   return claims.map(formatClaim);
 };
 
-const getCoachingClaims = async (coachingId, status) => {
+const getCoachingClaims = async (coachingId, status, teacherId = null, isTeacher = false) => {
+  let whereClause = {
+    coaching_center_id: Number(coachingId),
+    ...(status ? { status: String(status).toUpperCase() } : {})
+  };
+
+  // If user is a teacher (not owner), filter claims by teacher's assigned batches
+  if (isTeacher && teacherId) {
+    // Get all batches where this teacher has assignments (via batch_subject, batch_schedule, or lecture)
+    const assignedBatches = await prisma.batch.findMany({
+      where: {
+        coaching_center_id: Number(coachingId),
+        OR: [
+          { batch_subjects: { some: { teacher_id: Number(teacherId) } } },
+          { batch_schedules: { some: { teacher_id: Number(teacherId) } } },
+          { lectures: { some: { teacher_id: Number(teacherId) } } }
+        ]
+      },
+      select: { id: true }
+    });
+
+    const batchIds = assignedBatches.map(b => b.id);
+    
+    // If teacher has no assigned batches, return empty
+    if (batchIds.length === 0) {
+      return [];
+    }
+
+    whereClause = {
+      ...whereClause,
+      batch_id: { in: batchIds }
+    };
+  }
+
   const claims = await prisma.paymentClaim.findMany({
-    where: {
-      coaching_center_id: Number(coachingId),
-      ...(status ? { status: String(status).toUpperCase() } : {})
-    },
+    where: whereClause,
     include: {
       batch: { select: { id: true, name: true, price: true } },
       student: { select: { id: true, name: true, email: true } }
