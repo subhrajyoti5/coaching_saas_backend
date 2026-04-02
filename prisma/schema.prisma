@@ -410,6 +410,8 @@ model PaymentClaim {
   @@index([student_id], map: "idx_payment_claims_student")
   @@index([coaching_center_id, status], map: "idx_payment_claims_coaching_status")
   @@index([batch_id], map: "idx_payment_claims_batch")
+  @@index([student_id, status, created_at], map: "idx_payment_claims_student_status_created")
+  @@index([student_id, created_at], map: "idx_payment_claims_student_created")
   @@map("payment_claims")
 }
 

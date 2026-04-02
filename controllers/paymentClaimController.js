@@ -20,6 +20,7 @@ const createPaymentClaim = async (req, res) => {
   } catch (error) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
       error: 'Failed to create payment claim',
+      code: error.code || 'PAYMENT_CLAIM_CREATE_FAILED',
       message: error.message
     });
   }

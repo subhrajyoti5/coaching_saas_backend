@@ -9,6 +9,46 @@ const CLAIM_STATUS = {
   REJECTED: 'REJECTED'
 };
 
+const IST_OFFSET_MINUTES = 330;
+const IST_TIMEZONE = 'Asia/Kolkata';
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+const createBusinessRuleError = (code, message) => {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+};
+
+const getIstDateParts = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: IST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+
+  const [year, month, day] = parts.split('-').map(Number);
+  return { year, month, day };
+};
+
+const getIstDayRange = () => {
+  const { year, month, day } = getIstDateParts();
+  const offsetMs = IST_OFFSET_MINUTES * 60 * 1000;
+  const start = new Date(Date.UTC(year, month - 1, day) - offsetMs);
+  const end = new Date(start.getTime() + ONE_DAY_MS);
+  return { start, end };
+};
+
+const getIstMonthRange = () => {
+  const { year, month } = getIstDateParts();
+  const offsetMs = IST_OFFSET_MINUTES * 60 * 1000;
+  const start = new Date(Date.UTC(year, month - 1, 1) - offsetMs);
+  const nextMonthYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const end = new Date(Date.UTC(nextMonthYear, nextMonth - 1, 1) - offsetMs);
+  return { start, end };
+};
+
 const formatClaim = (claim) => ({
   ...claim,
   studentId: claim.student_id,
@@ -55,21 +95,63 @@ const createClaim = async ({ studentId, batchId, note, proofUrl }, requesterId) 
 
   const amount = Number(batch.price);
 
-  const claim = await prisma.paymentClaim.create({
-    data: {
-      student_id: Number(studentId),
-      batch_id: Number(batchId),
-      coaching_center_id: batch.coaching_center_id,
-      amount,
-      expected_amount: amount,
-      note: note || null,
-      proof_url: proofUrl || null,
-      status: CLAIM_STATUS.PENDING
-    },
-    include: {
-      batch: { select: { id: true, name: true, price: true } },
-      student: { select: { id: true, name: true, email: true } }
+  const claim = await prisma.$transaction(async (tx) => {
+    // Serialize claim creation per student to avoid daily-limit bypass by parallel requests.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${Number(studentId)})`;
+
+    const { start: monthStart, end: monthEnd } = getIstMonthRange();
+    const hasVerifiedOrApprovedThisMonth = await tx.paymentClaim.count({
+      where: {
+        student_id: Number(studentId),
+        status: { in: [CLAIM_STATUS.VERIFIED, CLAIM_STATUS.APPROVED] },
+        created_at: {
+          gte: monthStart,
+          lt: monthEnd
+        }
+      }
+    });
+
+    if (hasVerifiedOrApprovedThisMonth > 0) {
+      throw createBusinessRuleError(
+        'CLAIM_MONTH_LOCKED',
+        'You already have a verified fee request in this month, so new requests are blocked until next month.'
+      );
     }
+
+    const { start: dayStart, end: dayEnd } = getIstDayRange();
+    const claimsToday = await tx.paymentClaim.count({
+      where: {
+        student_id: Number(studentId),
+        created_at: {
+          gte: dayStart,
+          lt: dayEnd
+        }
+      }
+    });
+
+    if (claimsToday >= 2) {
+      throw createBusinessRuleError(
+        'CLAIM_DAILY_LIMIT_REACHED',
+        'You can raise a maximum of 2 fee requests per day.'
+      );
+    }
+
+    return tx.paymentClaim.create({
+      data: {
+        student_id: Number(studentId),
+        batch_id: Number(batchId),
+        coaching_center_id: batch.coaching_center_id,
+        amount,
+        expected_amount: amount,
+        note: note || null,
+        proof_url: proofUrl || null,
+        status: CLAIM_STATUS.PENDING
+      },
+      include: {
+        batch: { select: { id: true, name: true, price: true } },
+        student: { select: { id: true, name: true, email: true } }
+      }
+    });
   });
 
   await audit({
