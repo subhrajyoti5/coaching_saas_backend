@@ -30,6 +30,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.2",
     "express-validator": "^7.3.1",
+    "firebase-admin": "^13.4.0",
     "googleapis": "^144.0.0",
     "google-auth-library": "^10.6.1",
     "helmet": "^8.1.0",

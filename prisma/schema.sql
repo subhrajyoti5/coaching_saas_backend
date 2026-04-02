@@ -56,6 +56,20 @@ CREATE TABLE users (
 CREATE INDEX idx_users_center ON users(coaching_center_id);
 CREATE UNIQUE INDEX uniq_users_email_center ON users(email, coaching_center_id);
 
+CREATE TABLE device_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    platform TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    app_version TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_device_tokens_user_active ON device_tokens(user_id, is_active);
+
 CREATE TABLE access_codes (
     id SERIAL PRIMARY KEY,
     code TEXT UNIQUE NOT NULL,

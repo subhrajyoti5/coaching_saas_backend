@@ -4,6 +4,7 @@ const Razorpay = require('razorpay');
 const prisma = require('../config/database');
 const { SUBSCRIPTION_STATUS, WEBHOOK_EVENTS, ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
+const notificationService = require('./notificationService');
 
 const DEFAULT_GRACE_DAYS = Number(process.env.SUBSCRIPTION_GRACE_DAYS || 3);
 
@@ -260,6 +261,45 @@ const verifyWebhookSignature = (rawBody, signature) => {
   return expected === signature;
 };
 
+const sendSubscriptionStatusNotification = async (coachingId, newStatus) => {
+  try {
+    // Get coaching owner(s) - usually just one owner per coaching
+    const owners = await prisma.user.findMany({
+      where: {
+        coaching_center_id: Number(coachingId),
+        role: ROLES.OWNER,
+        is_active: true
+      },
+      select: { id: true }
+    });
+
+    if (owners.length === 0) return;
+
+    const ownerIds = owners.map(o => o.id);
+    const statusLabel =
+      newStatus === SUBSCRIPTION_STATUS.ACTIVE ? 'Active' :
+      newStatus === SUBSCRIPTION_STATUS.PAST_DUE ? 'Past Due' :
+      newStatus === SUBSCRIPTION_STATUS.CANCELLED ? 'Cancelled' : newStatus;
+
+    await notificationService.sendPushToUsers(
+      ownerIds,
+      {
+        title: 'Subscription Status Updated',
+        body: `Your coaching subscription is now ${statusLabel}.`,
+        data: {
+          type: 'subscription_status',
+          status: newStatus,
+          coachingId: String(coachingId)
+        }
+      }
+    );
+  } catch (error) {
+    // Log but don't block subscription status update
+    console.log('[Notification] Failed to send subscription status push:', error.message);
+  }
+};
+
+
 const updateCenterStateByEvent = async ({ event, subRecord, subscriptionEntity }) => {
   const coachingId = subRecord.coaching_center_id;
   const currentEnd = fromUnixTs(subscriptionEntity?.current_end || subscriptionEntity?.end_at);
@@ -290,6 +330,8 @@ const updateCenterStateByEvent = async ({ event, subRecord, subscriptionEntity }
         grace_period_end: computeGraceEnd()
       });
 
+      // Send notification async (non-blocking)
+      sendSubscriptionStatusNotification(coachingId, SUBSCRIPTION_STATUS.PAST_DUE).catch(() => {});
       return;
     }
 
@@ -312,6 +354,8 @@ const updateCenterStateByEvent = async ({ event, subRecord, subscriptionEntity }
         grace_period_end: null
       });
 
+      // Send notification async (non-blocking)
+      sendSubscriptionStatusNotification(coachingId, SUBSCRIPTION_STATUS.CANCELLED).catch(() => {});
       return;
     }
 
@@ -330,6 +374,9 @@ const updateCenterStateByEvent = async ({ event, subRecord, subscriptionEntity }
       current_period_end: currentEnd,
       grace_period_end: null
     });
+
+    // Send notification async (non-blocking)
+    sendSubscriptionStatusNotification(coachingId, SUBSCRIPTION_STATUS.ACTIVE).catch(() => {});
   });
 };
 

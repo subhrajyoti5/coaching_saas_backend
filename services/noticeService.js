@@ -1,12 +1,50 @@
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
+const notificationService = require('./notificationService');
 
 // Shared include shape for all notice queries
 const noticeInclude = {
   coaching_center: { select: { id: true, name: true } },
   targets: { include: { batch: { select: { id: true, name: true } } } },
   creator: { select: { id: true, name: true, email: true } },
+};
+
+const resolveNoticeRecipientIds = async ({ coachingId, batchId, requesterId }) => {
+  const recipients = new Set();
+
+  if (batchId) {
+    const [batchStudents, batchTeachers] = await Promise.all([
+      prisma.batchStudent.findMany({
+        where: { batch_id: Number(batchId) },
+        select: { student_id: true }
+      }),
+      prisma.batchSubject.findMany({
+        where: { batch_id: Number(batchId) },
+        select: { teacher_id: true }
+      })
+    ]);
+
+    batchStudents.forEach((row) => {
+      if (row.student_id) recipients.add(row.student_id);
+    });
+    batchTeachers.forEach((row) => {
+      if (row.teacher_id) recipients.add(row.teacher_id);
+    });
+  } else {
+    const users = await prisma.user.findMany({
+      where: {
+        coaching_center_id: Number(coachingId),
+        is_active: true
+      },
+      select: { id: true }
+    });
+
+    users.forEach((user) => recipients.add(user.id));
+  }
+
+  recipients.delete(Number(requesterId));
+  return [...recipients];
 };
 
 // Map DB row → shape expected by Flutter clients
@@ -59,6 +97,22 @@ const createNotice = async (noticeData, requesterId, requesterRole, requesterCoa
   });
 
   await audit({ userId: requesterId, action: 'CREATE_NOTICE', entityType: 'NOTICE', entityId: notice.id });
+
+  try {
+    const recipientUserIds = await resolveNoticeRecipientIds({
+      coachingId,
+      batchId,
+      requesterId
+    });
+
+    await notificationService.sendNoticeNotification({
+      recipientUserIds,
+      notice: mapNoticeForClient(notice)
+    });
+  } catch (error) {
+    console.error('Notice push notification failed:', error.message);
+  }
+
   return mapNoticeForClient(notice);
 };
 
