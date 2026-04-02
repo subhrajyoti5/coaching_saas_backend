@@ -169,7 +169,38 @@ const validateUpdateAttendance = [
 ];
 
 const validateUploadTeacherDocument = [
-  body('batchId').isInt({ min: 1 }).withMessage('Valid batch ID is required'),
+  body().custom((value) => {
+    const hasBatchId = value?.batchId !== undefined && value?.batchId !== null && String(value.batchId).trim() !== '';
+    const hasBatchIds = value?.batchIds !== undefined && value?.batchIds !== null && String(value.batchIds).trim() !== '';
+    if (!hasBatchId && !hasBatchIds) {
+      throw new Error('batchId or batchIds is required');
+    }
+    return true;
+  }),
+  body('batchId').optional({ nullable: true }).isInt({ min: 1 }).withMessage('Valid batch ID is required'),
+  body('batchIds').optional({ nullable: true }).custom((value) => {
+    let list = value;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return true;
+      try {
+        list = JSON.parse(trimmed);
+      } catch (_) {
+        list = trimmed.split(',');
+      }
+    }
+
+    if (!Array.isArray(list) || list.length === 0) {
+      throw new Error('batchIds must be a non-empty array');
+    }
+
+    const allValid = list.every((id) => Number.isInteger(Number(id)) && Number(id) > 0);
+    if (!allValid) {
+      throw new Error('batchIds must contain valid batch IDs');
+    }
+
+    return true;
+  }),
   body('title').trim().isLength({ min: 1, max: 120 }).withMessage('Title is required and must be under 120 characters'),
   body('description').optional({ nullable: true }).trim().isLength({ max: 1000 }).withMessage('Description must be under 1000 characters'),
   body('isSharedWithStudents').optional().isBoolean().withMessage('isSharedWithStudents must be true or false'),

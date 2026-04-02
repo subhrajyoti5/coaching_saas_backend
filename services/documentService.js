@@ -11,6 +11,32 @@ const parseSharedBoolean = (value) => {
   return false;
 };
 
+const parseBatchIds = (payload = {}) => {
+  const rawBatchIds = payload.batchIds;
+  const legacyBatchId = payload.batchId;
+
+  let values = [];
+  if (Array.isArray(rawBatchIds)) {
+    values = rawBatchIds;
+  } else if (typeof rawBatchIds === 'string' && rawBatchIds.trim()) {
+    try {
+      const parsed = JSON.parse(rawBatchIds);
+      if (Array.isArray(parsed)) {
+        values = parsed;
+      } else {
+        values = rawBatchIds.split(',');
+      }
+    } catch (_) {
+      values = rawBatchIds.split(',');
+    }
+  } else if (legacyBatchId !== undefined && legacyBatchId !== null) {
+    values = [legacyBatchId];
+  }
+
+  const ids = [...new Set(values.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+  return ids;
+};
+
 const mapDocumentForClient = (doc, extras = {}) => ({
   id: doc.id,
   title: doc.title,
@@ -40,6 +66,22 @@ const assertTeacherAssignedToBatch = async ({ userId, batchId, coachingId }) => 
   }
 };
 
+const assertBatchInCoaching = async ({ batchId, coachingId }) => {
+  const batch = await prisma.batch.findFirst({
+    where: {
+      id: Number(batchId),
+      coaching_center_id: Number(coachingId)
+    },
+    select: { id: true, name: true }
+  });
+
+  if (!batch) {
+    throw new Error('One or more selected batches are invalid for this coaching center');
+  }
+
+  return batch;
+};
+
 const uploadToDrive = async ({ userId, file }) => {
   const drive = await getDeveloperDriveClient();
 
@@ -62,46 +104,68 @@ const uploadToDrive = async ({ userId, file }) => {
 
 const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }) => {
   if (role !== ROLES.TEACHER && role !== ROLES.OWNER) {
-    throw new Error('Only teachers can upload documents');
+    throw new Error('Only teachers or owners can upload documents');
   }
 
   if (!file) {
     throw new Error('File is required');
   }
 
-  const { batchId, title } = payload;
-  if (!batchId) throw new Error('batchId is required');
+  const { title } = payload;
+  const batchIds = parseBatchIds(payload);
+  if (batchIds.length === 0) throw new Error('At least one batch is required');
 
-  await assertTeacherAssignedToBatch({ userId, batchId, coachingId });
+  const batches = [];
+  for (const batchId of batchIds) {
+    const batch = await assertBatchInCoaching({ batchId, coachingId });
+    if (role === ROLES.TEACHER) {
+      await assertTeacherAssignedToBatch({ userId, batchId, coachingId });
+    }
+    batches.push(batch);
+  }
+
   const driveMeta = await uploadToDrive({ userId, file });
 
-  const document = await prisma.document.create({
-    data: {
-      title: title || driveMeta.name || file.originalname,
-      drive_file_id: driveMeta.id,
-      batch_id: Number(batchId),
-      uploaded_by: Number(userId)
-    },
-    include: {
-      batch: { select: { id: true, name: true } }
+  const createdDocuments = await prisma.$transaction(async (tx) => {
+    const docs = [];
+    for (const batch of batches) {
+      const created = await tx.document.create({
+        data: {
+          title: title || driveMeta.name || file.originalname,
+          drive_file_id: driveMeta.id,
+          batch_id: Number(batch.id),
+          uploaded_by: Number(userId)
+        },
+        include: {
+          batch: { select: { id: true, name: true } }
+        }
+      });
+      docs.push(created);
     }
+    return docs;
   });
 
   await audit({
     userId,
     action: 'UPLOAD_TEACHER_DOCUMENT',
     entityType: 'DOCUMENT',
-    entityId: document.id,
-    metadata: { batchId: Number(batchId), driveFileId: driveMeta.id }
+    entityId: createdDocuments[0].id,
+    metadata: { batchIds: batches.map((batch) => batch.id), driveFileId: driveMeta.id }
   });
 
-  return mapDocumentForClient(document, {
+  const mappedDocuments = createdDocuments.map((document) => mapDocumentForClient(document, {
     description: payload.description || null,
     fileName: driveMeta.name || file.originalname,
     fileSize: Number(driveMeta.size || file.size || 0),
     mimeType: driveMeta.mimeType || file.mimetype,
     isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
-  });
+  }));
+
+  return {
+    documents: mappedDocuments,
+    document: mappedDocuments[0],
+    batchCount: mappedDocuments.length
+  };
 };
 
 const getMyTeacherDocuments = async ({ userId, coachingId }) => {
