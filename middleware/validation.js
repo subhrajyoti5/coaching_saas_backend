@@ -219,6 +219,14 @@ const validateUpdateCoachingPhone = [
   handleValidationErrors
 ];
 
+const validateUpdateCoachingDetails = [
+  body('phone').optional().trim().isLength({ min: 1 }).withMessage('Phone number cannot be empty if provided'),
+  body('name').optional().trim().isLength({ min: 1 }).withMessage('Coaching center name cannot be empty if provided'),
+  body('address').optional().trim().isLength({ max: 1000 }).withMessage('Address must be less than 1000 characters'),
+  body('description').optional().trim().isLength({ max: 2000 }).withMessage('Description must be less than 2000 characters'),
+  handleValidationErrors
+];
+
 module.exports = {
   validateUserRegistration,
   validateUserLogin,
@@ -243,5 +251,6 @@ module.exports = {
   validateUpdateAttendance,
   validateUploadTeacherDocument,
   validateUpdateTeacherDocument,
-  validateUpdateCoachingPhone
+  validateUpdateCoachingPhone,
+  validateUpdateCoachingDetails
 };

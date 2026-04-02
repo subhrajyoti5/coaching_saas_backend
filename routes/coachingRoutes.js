@@ -13,12 +13,13 @@ const {
   getTeachersByCoaching,
   getStudentsByCoaching,
   deactivateCoaching,
-  updateCoachingPhone
+  updateCoachingPhone,
+  updateCoachingDetails
 } = require('../controllers/coachingController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly } = require('../middleware/roles');
 const { validateCoachingAccess } = require('../middleware/coachingIsolation');
-const { validateCreateCoaching, validateAddTeacher, validateAddStudent, validateUpdateCoachingPhone } = require('../middleware/validation');
+const { validateCreateCoaching, validateAddTeacher, validateAddStudent, validateUpdateCoachingPhone, validateUpdateCoachingDetails } = require('../middleware/validation');
 
 // Protected routes
 // Create a new coaching center (Any authenticated user can create one and become an owner)
@@ -52,8 +53,11 @@ router.put('/:coachingId/students/:studentId', authenticateToken, ownerOnly, val
 // Delete a student from coaching (Owner only)
 router.delete('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, deleteStudent);
 
-// Update coaching center phone (Owner only)
+// Update coaching center phone (Owner only) - DEPRECATED, use PUT for full details
 router.patch('/:coachingId', authenticateToken, ownerOnly, validateCoachingAccess, validateUpdateCoachingPhone, updateCoachingPhone);
+
+// Update coaching center details (phone, name, address, description) - Owner only
+router.put('/:coachingId', authenticateToken, ownerOnly, validateCoachingAccess, validateUpdateCoachingDetails, updateCoachingDetails);
 
 // Generic route - MUST BE LAST
 // Get coaching center by ID
