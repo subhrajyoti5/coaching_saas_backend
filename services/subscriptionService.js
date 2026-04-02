@@ -281,18 +281,17 @@ const sendSubscriptionStatusNotification = async (coachingId, newStatus) => {
       newStatus === SUBSCRIPTION_STATUS.PAST_DUE ? 'Past Due' :
       newStatus === SUBSCRIPTION_STATUS.CANCELLED ? 'Cancelled' : newStatus;
 
-    await notificationService.sendPushToUsers(
-      ownerIds,
-      {
-        title: 'Subscription Status Updated',
-        body: `Your coaching subscription is now ${statusLabel}.`,
-        data: {
-          type: 'subscription_status',
-          status: newStatus,
-          coachingId: String(coachingId)
-        }
-      }
-    );
+    await notificationService.sendSubscriptionStatusNotification({
+      ownerUserIds: ownerIds,
+      status: newStatus,
+      coachingId: String(coachingId)
+    });
+
+    console.log('[Notification] Subscription push sent', {
+      coachingId,
+      status: statusLabel,
+      ownerCount: ownerIds.length
+    });
   } catch (error) {
     // Log but don't block subscription status update
     console.log('[Notification] Failed to send subscription status push:', error.message);
