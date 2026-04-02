@@ -9,7 +9,7 @@ const uploadDocument = async (req, res) => {
     console.log('[Controller] uploadDocument FILE:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'NO FILE');
     console.log('[Controller] uploadDocument USER:', { userId: req.user.userId, role: req.user.role, coachingId: req.user.coachingId });
     
-    const document = await documentService.uploadTeacherDocument({
+    const uploadResult = await documentService.uploadTeacherDocument({
       userId: req.user.userId,
       role: req.user.role,
       coachingId: req.user.coachingId,
@@ -19,7 +19,7 @@ const uploadDocument = async (req, res) => {
 
     return res.status(HTTP_STATUS.CREATED).json({
       message: 'Document uploaded successfully',
-      document
+      ...uploadResult
     });
   } catch (error) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
