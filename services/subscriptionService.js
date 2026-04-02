@@ -152,7 +152,8 @@ const createSubscription = async ({ userId, coachingId }) => {
       description: 'Shixa Monthly Subscription',
       prefill: {
         name: owner.name,
-        email: owner.email
+        email: owner.email,
+        contact: owner.phone || undefined
       },
       notes: {
         coachingId: String(coachingId),
