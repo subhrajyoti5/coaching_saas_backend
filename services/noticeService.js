@@ -105,10 +105,31 @@ const createNotice = async (noticeData, requesterId, requesterRole, requesterCoa
       requesterId
     });
 
-    await notificationService.sendNoticeNotification({
+    const pushResult = await notificationService.sendNoticeNotification({
       recipientUserIds,
       notice: mapNoticeForClient(notice)
     });
+
+    if (!pushResult?.sent) {
+      console.warn(
+        '[Notice Push] Not sent',
+        {
+          noticeId: notice.id,
+          recipientCount: recipientUserIds.length,
+          reason: pushResult?.reason || 'unknown'
+        }
+      );
+    } else {
+      console.log(
+        '[Notice Push] Sent',
+        {
+          noticeId: notice.id,
+          recipientCount: recipientUserIds.length,
+          successCount: pushResult.successCount,
+          failureCount: pushResult.failureCount
+        }
+      );
+    }
   } catch (error) {
     console.error('Notice push notification failed:', error.message);
   }
