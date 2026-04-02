@@ -265,9 +265,34 @@ const sendSubscriptionStatusNotification = async ({ ownerUserIds = [], status, c
   });
 };
 
+const sendMaterialUpdateNotification = async ({ recipientUserIds = [], material }) => {
+  const title = clampText(material?.title || 'New Material Available', 80);
+  const batchName = compactText(material?.batchName || 'your batch');
+  const body = clampText(
+    `New study material is available for ${batchName}. Tap to open and review.`,
+    140
+  );
+
+  return sendPushToUsers({
+    userIds: recipientUserIds,
+    title,
+    body,
+    data: {
+      type: 'material_update',
+      documentId: material?.id,
+      title,
+      batchId: material?.batchId,
+      coachingId: material?.coachingId,
+      driveFileId: material?.driveFileId
+    },
+    androidTag: `material_${material?.id || 'update'}`
+  });
+};
+
 module.exports = {
   sendPushToUsers,
   sendNoticeNotification,
   sendPaymentClaimStatusNotification,
-  sendSubscriptionStatusNotification
+  sendSubscriptionStatusNotification,
+  sendMaterialUpdateNotification
 };
