@@ -286,6 +286,8 @@ CREATE INDEX idx_payments_fee ON payments(fee_id);
 CREATE INDEX idx_payment_claims_student ON payment_claims(student_id);
 CREATE INDEX idx_payment_claims_coaching_status ON payment_claims(coaching_center_id, status);
 CREATE INDEX idx_payment_claims_batch ON payment_claims(batch_id);
+CREATE INDEX idx_payment_claims_student_status_created ON payment_claims(student_id, status, created_at);
+CREATE INDEX idx_payment_claims_student_created ON payment_claims(student_id, created_at);
 
 -- ------------------------------------------------------------
 -- Incremental patch for already-running databases
@@ -305,3 +307,9 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_device_tokens_user_active
 ON device_tokens(user_id, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_payment_claims_student_status_created
+ON payment_claims(student_id, status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_payment_claims_student_created
+ON payment_claims(student_id, created_at);
