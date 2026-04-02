@@ -102,6 +102,20 @@ const getCoachingRevenue = async (req, res) => {
   }
 };
 
+const getCoachingStudentWiseRevenueReport = async (req, res) => {
+  try {
+    const coachingId = req.coachingId || req.params.coachingId;
+    const segmentBy = req.query.segmentBy === 'batch' ? 'batch' : 'none';
+    const report = await feeService.getCoachingStudentWiseRevenueReport(coachingId, segmentBy);
+    return res.status(HTTP_STATUS.SUCCESS).json({ report });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to fetch student-wise revenue report',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createFeeRecord,
   recordPayment,
@@ -112,5 +126,6 @@ module.exports = {
   getFeeById,
   updateFeeRecord,
   getFeeTransactions,
-  getCoachingRevenue
+  getCoachingRevenue,
+  getCoachingStudentWiseRevenueReport
 };
