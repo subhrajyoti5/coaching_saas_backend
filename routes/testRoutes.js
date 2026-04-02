@@ -17,7 +17,8 @@ const {
   getTeacherLeaderboard,
   getStudentLeaderboard,
   deleteTest,
-  publishTest
+  publishTest,
+  getCoachingStudentPerformance
 } = require('../controllers/testController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOnly, teacherOrOwner, studentOrOwner, studentOnly } = require('../middleware/roles');
@@ -30,6 +31,9 @@ router.post('/', authenticateToken, teacherOrOwner, validateCreateTest, createTe
 
 // Get all tests for a coaching center (Owner and Teacher can access)
 router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getTestsByCoaching);
+
+// Get student performance for a coaching center (Owner and Teacher can access)
+router.get('/coaching/:coachingId/performance', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingStudentPerformance);
 
 // Get all tests for a batch (Owner, Teacher, and Student can access)
 router.get('/batch/:batchId', authenticateToken, studentOrOwner, getTestsByBatch);

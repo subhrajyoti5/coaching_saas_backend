@@ -186,6 +186,48 @@ const getFeeTransactions = async (feeId) => {
   }));
 };
 
+// Get all revenue (payments) for a coaching center with student details
+const getCoachingRevenue = async (coachingId) => {
+  const payments = await prisma.payment.findMany({
+    where: {
+      fee: {
+        student: {
+          coaching_center_id: Number(coachingId)
+        }
+      }
+    },
+    include: {
+      fee: {
+        include: {
+          student: {
+            select: { id: true, name: true, email: true }
+          },
+          batch: {
+            select: { id: true, name: true }
+          }
+        }
+      },
+      recorder: {
+        select: { id: true, name: true }
+      }
+    },
+    orderBy: { paid_at: 'desc' }
+  });
+
+  return payments.map((payment) => ({
+    id: payment.id,
+    amount: payment.amount,
+    paidAt: payment.paid_at,
+    studentId: payment.fee?.student?.id,
+    studentName: payment.fee?.student?.name,
+    studentEmail: payment.fee?.student?.email,
+    batchId: payment.fee?.batch?.id,
+    batchName: payment.fee?.batch?.name,
+    feeId: payment.fee_id,
+    recordedBy: payment.recorder?.name || 'System'
+  }));
+};
+
 module.exports = {
   createFeeRecord,
   recordPayment,
@@ -194,5 +236,6 @@ module.exports = {
   getCoachingFeeSummary,
   getFeeById,
   updateFeeRecord,
-  getFeeTransactions
+  getFeeTransactions,
+  getCoachingRevenue
 };

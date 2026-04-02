@@ -8,6 +8,7 @@ const {
   updateAttendance,
   getMyAttendance,
   getCoachingAttendanceSummary,
+  getCoachingAttendanceDetails,
 } = require('../controllers/attendanceController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOrOwner, studentOnly } = require('../middleware/roles');
@@ -23,5 +24,6 @@ router.put('/:attendanceId', authenticateToken, teacherOrOwner, validateUpdateAt
 
 router.get('/my-attendance', authenticateToken, studentOnly, getMyAttendance);
 router.get('/coaching-summary', authenticateToken, ownerOnly, getCoachingAttendanceSummary);
+router.get('/coaching-details', authenticateToken, ownerOnly, getCoachingAttendanceDetails);
 
 module.exports = router;

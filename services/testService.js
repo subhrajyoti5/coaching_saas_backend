@@ -581,6 +581,52 @@ const publishTest = async (testId, requester) => {
   return mapTestForClient({ ...test, test_batches: [], questions: [], coaching_center: null });
 };
 
+// Get all student performance (test attempts) for a coaching center
+const getCoachingStudentPerformance = async (coachingId) => {
+  const attempts = await prisma.testAttempt.findMany({
+    where: {
+      test: {
+        coaching_center_id: Number(coachingId)
+      }
+    },
+    include: {
+      test: { 
+        select: { 
+          id: true, 
+          title: true, 
+          start_time: true,
+          questions: { select: { marks: true } }
+        }
+      },
+      student: { select: { id: true, name: true, email: true } },
+      batch: { select: { id: true, name: true } }
+    },
+    orderBy: [{ submitted_at: 'desc' }]
+  });
+
+  return attempts.map((attempt) => {
+    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const score = Number(attempt.score || 0);
+    const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
+    
+    return {
+      id: attempt.id,
+      testId: attempt.test_id,
+      testTitle: attempt.test.title,
+      studentId: attempt.student_id,
+      studentName: attempt.student?.name || 'Unknown',
+      studentEmail: attempt.student?.email,
+      batchId: attempt.batch_id,
+      batchName: attempt.batch?.name,
+      score,
+      totalMarks,
+      percentage: Math.round(percentage * 10) / 10,
+      passed: percentage >= 40,
+      submittedAt: attempt.submitted_at
+    };
+  });
+};
+
 module.exports = {
   createTest,
   getTestById,
@@ -598,5 +644,6 @@ module.exports = {
   getTeacherLeaderboard,
   getStudentLeaderboard,
   deactivateTest,
-  publishTest
+  publishTest,
+  getCoachingStudentPerformance
 };

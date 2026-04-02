@@ -285,6 +285,45 @@ const getCoachingAttendanceSummary = async (coachingId) => {
   };
 };
 
+// Get detailed attendance records for a coaching center (student-wise)
+const getCoachingAttendanceDetails = async (coachingId) => {
+  const attendance = await prisma.attendance.findMany({
+    where: {
+      lecture: {
+        batch: {
+          coaching_center_id: Number(coachingId)
+        }
+      }
+    },
+    include: {
+      student: {
+        select: { id: true, name: true, email: true }
+      },
+      lecture: {
+        select: { 
+          id: true, 
+          lecture_date: true, 
+          batch: { select: { id: true, name: true } }
+        }
+      }
+    },
+    orderBy: [{ lecture: { lecture_date: 'desc' } }, { student: { name: 'asc' } }],
+    take: 1000 // Limit to last 1000 records for performance
+  });
+
+  return attendance.map((record) => ({
+    id: record.id,
+    studentId: record.student_id,
+    studentName: record.student?.name || 'Unknown',
+    studentEmail: record.student?.email,
+    batchId: record.lecture?.batch?.id,
+    batchName: record.lecture?.batch?.name,
+    lectureDate: record.lecture?.lecture_date,
+    status: record.status,
+    markedAt: record.marked_at
+  }));
+};
+
 module.exports = {
   getMyTeacherBatches,
   markBatchAttendance,
@@ -292,4 +331,5 @@ module.exports = {
   updateAttendance,
   getMyAttendance,
   getCoachingAttendanceSummary,
+  getCoachingAttendanceDetails,
 };

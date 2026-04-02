@@ -89,6 +89,19 @@ const getCoachingAttendanceSummary = async (req, res) => {
   }
 };
 
+const getCoachingAttendanceDetails = async (req, res) => {
+  try {
+    const coachingId = req.coachingId || req.user.coachingId;
+    const details = await attendanceService.getCoachingAttendanceDetails(coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ details });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch attendance details',
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   getMyTeacherBatches,
   markBatchAttendance,
@@ -96,4 +109,5 @@ module.exports = {
   updateAttendance,
   getMyAttendance,
   getCoachingAttendanceSummary,
+  getCoachingAttendanceDetails,
 };
