@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
+const notificationService = require('./notificationService');
 
 const CLAIM_STATUS = {
   PENDING: 'PENDING',
@@ -121,6 +122,16 @@ const verifyClaim = async (claimId, requesterId) => {
     metadata: { amount: claim.amount, expectedAmount: claim.expected_amount }
   });
 
+  try {
+    await notificationService.sendPaymentClaimStatusNotification({
+      studentId: claim.student_id,
+      claim,
+      status: CLAIM_STATUS.VERIFIED
+    });
+  } catch (error) {
+    console.error('Claim verify push notification failed:', error.message);
+  }
+
   return formatClaim(claim);
 };
 
@@ -159,6 +170,16 @@ const approveClaim = async (claimId, requesterId) => {
     metadata: { amount: claim.amount }
   });
 
+  try {
+    await notificationService.sendPaymentClaimStatusNotification({
+      studentId: claim.student_id,
+      claim,
+      status: CLAIM_STATUS.APPROVED
+    });
+  } catch (error) {
+    console.error('Claim approve push notification failed:', error.message);
+  }
+
   return formatClaim(claim);
 };
 
@@ -192,6 +213,16 @@ const rejectClaim = async (claimId, requesterId, reason) => {
     metadata: { reason: reason || null }
   });
 
+  try {
+    await notificationService.sendPaymentClaimStatusNotification({
+      studentId: claim.student_id,
+      claim,
+      status: CLAIM_STATUS.REJECTED
+    });
+  } catch (error) {
+    console.error('Claim reject push notification failed:', error.message);
+  }
+
   return formatClaim(claim);
 };
 
@@ -222,7 +253,7 @@ const getCoachingClaims = async (coachingId, status, teacherId = null, isTeacher
         coaching_center_id: Number(coachingId),
         OR: [
           { batch_subjects: { some: { teacher_id: Number(teacherId) } } },
-          { batch_schedules: { some: { teacher_id: Number(teacherId) } } },
+          { schedules: { some: { teacher_id: Number(teacherId) } } },
           { lectures: { some: { teacher_id: Number(teacherId) } } }
         ]
       },
