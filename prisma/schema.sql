@@ -315,6 +315,15 @@ ADD COLUMN IF NOT EXISTS phone TEXT;
 ALTER TABLE coaching_centers
 ADD COLUMN IF NOT EXISTS phone TEXT;
 
+ALTER TABLE coaching_centers
+ADD COLUMN IF NOT EXISTS address TEXT;
+
+ALTER TABLE coaching_centers
+ADD COLUMN IF NOT EXISTS description TEXT;
+
+ALTER TABLE coaching_centers
+ADD COLUMN IF NOT EXISTS name_updated_at TIMESTAMP;
+
 CREATE INDEX IF NOT EXISTS idx_payment_claims_student_status_created
 ON payment_claims(student_id, status, created_at);
 

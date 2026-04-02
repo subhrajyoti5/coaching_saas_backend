@@ -451,6 +451,96 @@ const updateCoachingPhone = async (coachingId, phone, requesterId) => {
   return updatedCoaching;
 };
 
+const updateCoachingDetails = async (coachingId, updateData, requesterId) => {
+  const { isValidPhone } = require('../utils/validators');
+  const numericCoachingId = Number(coachingId);
+
+  const coaching = await prisma.coachingCenter.findUnique({
+    where: { id: numericCoachingId }
+  });
+
+  if (!coaching) {
+    throw new Error('Coaching center not found');
+  }
+
+  const dataToUpdate = {};
+  const auditMetadata = { coachingId: numericCoachingId };
+
+  // Validate and update phone if provided
+  if (updateData.phone !== undefined && updateData.phone !== null) {
+    const phone = updateData.phone.toString().trim();
+    if (phone) {
+      if (!isValidPhone(phone)) {
+        throw new Error('Invalid phone number format');
+      }
+      dataToUpdate.phone = phone;
+      auditMetadata.phone = phone;
+    }
+  }
+
+  // Validate and update name if provided
+  if (updateData.name !== undefined && updateData.name !== null) {
+    const name = updateData.name.toString().trim();
+    if (!name) {
+      throw new Error('Coaching center name cannot be empty');
+    }
+
+    // Check if name is being changed and enforce 30-day limit
+    if (name !== coaching.name) {
+      if (coaching.name_updated_at) {
+        const lastUpdate = new Date(coaching.name_updated_at);
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        if (lastUpdate > thirtyDaysAgo) {
+          const nextAllowedDate = new Date(lastUpdate.getTime() + 30 * 24 * 60 * 60 * 1000);
+          throw new Error(
+            `Coaching center name can only be updated once per month. Next update allowed on ${nextAllowedDate.toLocaleDateString()}`
+          );
+        }
+      }
+
+      dataToUpdate.name = name;
+      dataToUpdate.name_updated_at = new Date();
+      auditMetadata.name = name;
+    }
+  }
+
+  // Update address if provided
+  if (updateData.address !== undefined) {
+    const address = updateData.address ? updateData.address.toString().trim() : null;
+    dataToUpdate.address = address || null;
+    if (address) auditMetadata.address = address;
+  }
+
+  // Update description if provided
+  if (updateData.description !== undefined) {
+    const description = updateData.description ? updateData.description.toString().trim() : null;
+    dataToUpdate.description = description || null;
+    if (description) auditMetadata.description = description;
+  }
+
+  // Only update if there's something to update
+  if (Object.keys(dataToUpdate).length === 0) {
+    return coaching;
+  }
+
+  const updatedCoaching = await prisma.coachingCenter.update({
+    where: { id: numericCoachingId },
+    data: dataToUpdate
+  });
+
+  await audit({
+    userId: requesterId,
+    action: 'UPDATE_COACHING_DETAILS',
+    entityType: 'COACHING',
+    entityId: numericCoachingId,
+    metadata: auditMetadata
+  });
+
+  return updatedCoaching;
+};
+
 module.exports = {
   createCoaching,
   addTeacherToCoaching,
@@ -464,5 +554,6 @@ module.exports = {
   getTeachersByCoaching,
   getStudentsByCoaching,
   deactivateCoaching,
-  updateCoachingPhone
+  updateCoachingPhone,
+  updateCoachingDetails
 };
