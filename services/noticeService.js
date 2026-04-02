@@ -43,7 +43,6 @@ const resolveNoticeRecipientIds = async ({ coachingId, batchId, requesterId }) =
     users.forEach((user) => recipients.add(user.id));
   }
 
-  recipients.delete(Number(requesterId));
   return [...recipients];
 };
 
