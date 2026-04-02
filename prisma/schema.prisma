@@ -65,6 +65,7 @@ model User {
   id                Int               @id @default(autoincrement())
   name              String
   email             String
+  phone             String?
   role              String
   coaching_center_id Int?
   is_active         Boolean?          @default(true)

@@ -15,10 +15,10 @@ const mapUserForClient = (user) => {
     id: user.id,
     email: user.email,
     role: user.role,
+    phone: user.phone || null,
     firstName,
     lastName,
     name: user.name,
-    phone: null,
     isActive: Boolean(user.is_active),
     createdAt: user.created_at,
     coachingId: user.coaching_center_id
@@ -110,6 +110,7 @@ const updateUserProfile = async (userId, updateData, requesterId) => {
   const allowed = {};
   if (typeof data.name === 'string' && data.name.trim()) allowed.name = data.name.trim();
   if (typeof data.role === 'string' && data.role.trim()) allowed.role = data.role.trim();
+  if (typeof data.phone === 'string') allowed.phone = data.phone.trim() || null;
   if (typeof data.is_active === 'boolean') allowed.is_active = data.is_active;
 
   const updatedUser = await prisma.user.update({

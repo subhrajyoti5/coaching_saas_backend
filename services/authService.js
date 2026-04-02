@@ -20,6 +20,7 @@ const mapUserForClient = (user) => {
   return {
     id: user.id,
     email: user.email,
+    phone: user.phone || null,
     role: user.role,
     coaching_center_id: user.coaching_center_id,
     firstName,
@@ -114,6 +115,7 @@ const loginWithGoogle = async (token) => {
         profile: {
           email: googleEmail,
           name: payload.name || googleEmail,
+          phone: payload.phone_number || null,
           firstName: splitName(payload.name || '').firstName,
           lastName: splitName(payload.name || '').lastName
         }

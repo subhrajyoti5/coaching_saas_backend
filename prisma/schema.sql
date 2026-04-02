@@ -39,6 +39,7 @@ CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
+    phone TEXT,
     role TEXT CHECK (role IN ('OWNER','TEACHER','STUDENT')) NOT NULL,
     coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
     is_active BOOLEAN DEFAULT TRUE,
@@ -307,6 +308,9 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_device_tokens_user_active
 ON device_tokens(user_id, is_active);
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS phone TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_payment_claims_student_status_created
 ON payment_claims(student_id, status, created_at);
