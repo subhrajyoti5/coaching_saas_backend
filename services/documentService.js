@@ -3,6 +3,7 @@ const { Readable } = require('stream');
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
+const notificationService = require('./notificationService');
 const { getDeveloperDriveClient, setDriveFilePermissions } = require('./googleDriveService');
 
 const parseSharedBoolean = (value) => {
@@ -80,6 +81,23 @@ const assertBatchInCoaching = async ({ batchId, coachingId }) => {
   }
 
   return batch;
+};
+
+const resolveMaterialRecipientIds = async ({ batchIds = [], uploaderId }) => {
+  if (!batchIds.length) return [];
+
+  const rows = await prisma.batchStudent.findMany({
+    where: {
+      batch_id: { in: batchIds.map(Number) }
+    },
+    select: { student_id: true }
+  });
+
+  return [...new Set(
+    rows
+      .map((row) => Number(row.student_id))
+      .filter((id) => Number.isInteger(id) && id > 0 && id !== Number(uploaderId))
+  )];
 };
 
 const uploadToDrive = async ({ userId, file }) => {
@@ -160,6 +178,32 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
     mimeType: driveMeta.mimeType || file.mimetype,
     isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
   }));
+
+  try {
+    const recipientUserIds = await resolveMaterialRecipientIds({
+      batchIds: batches.map((batch) => batch.id),
+      uploaderId: userId
+    });
+
+    if (recipientUserIds.length > 0) {
+      const firstMaterial = mappedDocuments[0];
+      const firstBatch = mappedDocuments[0]?.batch?.name || 'your batch';
+
+      await notificationService.sendMaterialUpdateNotification({
+        recipientUserIds,
+        material: {
+          id: firstMaterial?.id,
+          title: firstMaterial?.title,
+          batchId: firstMaterial?.batchId,
+          batchName: firstBatch,
+          coachingId,
+          driveFileId: firstMaterial?.driveFileId
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Material upload push notification failed:', error.message);
+  }
 
   return {
     documents: mappedDocuments,
