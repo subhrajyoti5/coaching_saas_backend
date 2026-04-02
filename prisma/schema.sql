@@ -312,6 +312,9 @@ ON device_tokens(user_id, is_active);
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS phone TEXT;
 
+ALTER TABLE coaching_centers
+ADD COLUMN IF NOT EXISTS phone TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_payment_claims_student_status_created
 ON payment_claims(student_id, status, created_at);
 

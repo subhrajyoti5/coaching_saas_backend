@@ -424,6 +424,33 @@ const getCoachingAuditLogs = async () => {
   return [];
 };
 
+const updateCoachingPhone = async (coachingId, phone, requesterId) => {
+  const { isValidPhone } = require('../utils/validators');
+
+  if (!phone || typeof phone !== 'string') {
+    throw new Error('Phone number is required');
+  }
+
+  if (!isValidPhone(phone)) {
+    throw new Error('Invalid phone number format');
+  }
+
+  const updatedCoaching = await prisma.coachingCenter.update({
+    where: { id: Number(coachingId) },
+    data: { phone: phone.trim() }
+  });
+
+  await audit({
+    userId: requesterId,
+    action: 'UPDATE_COACHING_PHONE',
+    entityType: 'COACHING',
+    entityId: Number(coachingId),
+    metadata: { coachingId: Number(coachingId), phone: phone.trim() }
+  });
+
+  return updatedCoaching;
+};
+
 module.exports = {
   createCoaching,
   addTeacherToCoaching,
@@ -436,5 +463,6 @@ module.exports = {
   getUserCoachingCenters,
   getTeachersByCoaching,
   getStudentsByCoaching,
-  deactivateCoaching
+  deactivateCoaching,
+  updateCoachingPhone
 };

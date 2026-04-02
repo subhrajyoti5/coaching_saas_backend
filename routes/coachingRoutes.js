@@ -12,12 +12,13 @@ const {
   getCoachingAuditLogs,
   getTeachersByCoaching,
   getStudentsByCoaching,
-  deactivateCoaching
+  deactivateCoaching,
+  updateCoachingPhone
 } = require('../controllers/coachingController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly } = require('../middleware/roles');
 const { validateCoachingAccess } = require('../middleware/coachingIsolation');
-const { validateCreateCoaching, validateAddTeacher, validateAddStudent } = require('../middleware/validation');
+const { validateCreateCoaching, validateAddTeacher, validateAddStudent, validateUpdateCoachingPhone } = require('../middleware/validation');
 
 // Protected routes
 // Create a new coaching center (Any authenticated user can create one and become an owner)
@@ -50,6 +51,9 @@ router.put('/:coachingId/students/:studentId', authenticateToken, ownerOnly, val
 
 // Delete a student from coaching (Owner only)
 router.delete('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, deleteStudent);
+
+// Update coaching center phone (Owner only)
+router.patch('/:coachingId', authenticateToken, ownerOnly, validateCoachingAccess, validateUpdateCoachingPhone, updateCoachingPhone);
 
 // Generic route - MUST BE LAST
 // Get coaching center by ID
