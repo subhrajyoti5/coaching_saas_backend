@@ -96,6 +96,27 @@ const getTeachersByCoaching = async (req, res) => {
   }
 };
 
+const updateCoachingPhone = async (req, res) => {
+  try {
+    const { coachingId } = req.params;
+    const { phone } = req.body;
+    const updatedCoaching = await coachingService.updateCoachingPhone(
+      coachingId,
+      phone,
+      req.user.userId
+    );
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+      coaching: updatedCoaching
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to update coaching center phone',
+      message: error.message
+    });
+  }
+};
+
 const getStudentsByCoaching = async (req, res) => {
   try {
     const { coachingId } = req.params;
@@ -205,5 +226,6 @@ module.exports = {
   getCoachingAuditLogs,
   getTeachersByCoaching,
   getStudentsByCoaching,
-  deactivateCoaching
+  deactivateCoaching,
+  updateCoachingPhone
 };

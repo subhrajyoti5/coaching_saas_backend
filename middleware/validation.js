@@ -214,6 +214,11 @@ const validateUpdateTeacherDocument = [
   handleValidationErrors
 ];
 
+const validateUpdateCoachingPhone = [
+  body('phone').trim().notEmpty().withMessage('Phone number is required'),
+  handleValidationErrors
+];
+
 module.exports = {
   validateUserRegistration,
   validateUserLogin,
@@ -237,5 +242,6 @@ module.exports = {
   validateMarkBatchAttendance,
   validateUpdateAttendance,
   validateUploadTeacherDocument,
-  validateUpdateTeacherDocument
+  validateUpdateTeacherDocument,
+  validateUpdateCoachingPhone
 };
