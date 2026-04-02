@@ -228,6 +228,207 @@ const getCoachingRevenue = async (coachingId) => {
   }));
 };
 
+const getCoachingStudentWiseRevenueReport = async (coachingId, segmentBy = 'none') => {
+  const numericCoachingId = Number(coachingId);
+
+  const [fees, approvedClaims] = await Promise.all([
+    prisma.fee.findMany({
+      where: {
+        student: {
+          coaching_center_id: numericCoachingId
+        }
+      },
+      include: {
+        student: {
+          select: { id: true, name: true }
+        },
+        batch: {
+          select: { id: true, name: true }
+        },
+        payments: {
+          select: { amount: true }
+        }
+      }
+    }),
+    prisma.paymentClaim.findMany({
+      where: {
+        coaching_center_id: numericCoachingId,
+        status: 'APPROVED'
+      },
+      select: {
+        student_id: true,
+        batch_id: true,
+        amount: true
+      }
+    })
+  ]);
+
+  const approvedByStudent = new Map();
+  const approvedByStudentBatch = new Map();
+
+  for (const claim of approvedClaims) {
+    const studentId = Number(claim.student_id);
+    const batchId = claim.batch_id == null ? null : Number(claim.batch_id);
+    const amount = Number(claim.amount) || 0;
+
+    approvedByStudent.set(studentId, (approvedByStudent.get(studentId) || 0) + amount);
+
+    if (batchId != null) {
+      const batchKey = `${studentId}:${batchId}`;
+      approvedByStudentBatch.set(batchKey, (approvedByStudentBatch.get(batchKey) || 0) + amount);
+    }
+  }
+
+  const studentMap = new Map();
+  const batchMap = new Map();
+
+  for (const fee of fees) {
+    const studentId = Number(fee.student_id);
+    if (!studentId) continue;
+
+    const studentName = fee.student?.name || 'Unknown';
+    const batchId = fee.batch_id == null ? null : Number(fee.batch_id);
+    const batchName = fee.batch?.name || 'Unassigned';
+    const feeAmount = Number(fee.total_fee) || 0;
+    const totalPaid = (fee.payments || []).reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+
+    if (!studentMap.has(studentId)) {
+      studentMap.set(studentId, {
+        studentId,
+        studentName,
+        totalFee: 0,
+        totalPaid: 0,
+        approvedPaid: 0,
+        dueAmount: 0,
+        status: 'due',
+        _batchIds: new Set(),
+        _batchNames: new Set()
+      });
+    }
+
+    const existingStudent = studentMap.get(studentId);
+    existingStudent.totalFee += feeAmount;
+    existingStudent.totalPaid += totalPaid;
+    if (batchId != null) existingStudent._batchIds.add(batchId);
+    if (batchName) existingStudent._batchNames.add(batchName);
+
+    const normalizedBatchId = batchId == null ? 0 : batchId;
+    const batchKey = `${normalizedBatchId}`;
+    if (!batchMap.has(batchKey)) {
+      batchMap.set(batchKey, {
+        batchId,
+        batchName,
+        students: new Map()
+      });
+    }
+
+    const batchEntry = batchMap.get(batchKey);
+    if (!batchEntry.students.has(studentId)) {
+      batchEntry.students.set(studentId, {
+        studentId,
+        studentName,
+        batchId,
+        batchName,
+        totalFee: 0,
+        totalPaid: 0,
+        approvedPaid: 0,
+        dueAmount: 0,
+        status: 'due'
+      });
+    }
+
+    const batchStudent = batchEntry.students.get(studentId);
+    batchStudent.totalFee += feeAmount;
+    batchStudent.totalPaid += totalPaid;
+  }
+
+  const students = Array.from(studentMap.values())
+    .map((student) => {
+      const approvedPaid = approvedByStudent.get(student.studentId) || 0;
+      const dueAmount = Math.max(student.totalFee - approvedPaid, 0);
+
+      return {
+        studentId: student.studentId,
+        studentName: student.studentName,
+        batchIds: Array.from(student._batchIds),
+        batchNames: Array.from(student._batchNames),
+        totalFee: student.totalFee,
+        totalPaid: student.totalPaid,
+        approvedPaid,
+        dueAmount,
+        status: student.totalFee > 0 && dueAmount <= 0 ? 'paid' : 'due'
+      };
+    })
+    .sort((a, b) => a.studentName.localeCompare(b.studentName));
+
+  const byBatch = Array.from(batchMap.values())
+    .map((batchEntry) => {
+      const batchStudents = Array.from(batchEntry.students.values())
+        .map((student) => {
+          const claimKey = `${student.studentId}:${student.batchId == null ? 0 : student.batchId}`;
+          const approvedPaid = approvedByStudentBatch.get(claimKey) || 0;
+          const dueAmount = Math.max(student.totalFee - approvedPaid, 0);
+
+          return {
+            ...student,
+            approvedPaid,
+            dueAmount,
+            status: student.totalFee > 0 && dueAmount <= 0 ? 'paid' : 'due'
+          };
+        })
+        .sort((a, b) => a.studentName.localeCompare(b.studentName));
+
+      const totals = batchStudents.reduce(
+        (acc, item) => {
+          acc.totalFee += item.totalFee;
+          acc.totalPaid += item.totalPaid;
+          acc.approvedPaid += item.approvedPaid;
+          acc.totalDue += item.dueAmount;
+          return acc;
+        },
+        { totalFee: 0, totalPaid: 0, approvedPaid: 0, totalDue: 0 }
+      );
+
+      return {
+        batchId: batchEntry.batchId,
+        batchName: batchEntry.batchName,
+        totals,
+        students: batchStudents
+      };
+    })
+    .sort((a, b) => a.batchName.localeCompare(b.batchName));
+
+  const summary = students.reduce(
+    (acc, item) => {
+      acc.totalStudents += 1;
+      acc.centerTotalFee += item.totalFee;
+      acc.centerTotalPaid += item.totalPaid;
+      acc.centerApprovedPaid += item.approvedPaid;
+      acc.centerDue += item.dueAmount;
+      if (item.status === 'paid') acc.paidStudents += 1;
+      else acc.dueStudents += 1;
+      return acc;
+    },
+    {
+      totalStudents: 0,
+      paidStudents: 0,
+      dueStudents: 0,
+      centerTotalFee: 0,
+      centerTotalPaid: 0,
+      centerApprovedPaid: 0,
+      centerDue: 0
+    }
+  );
+
+  return {
+    summary,
+    students,
+    segments: {
+      byBatch: segmentBy === 'batch' ? byBatch : []
+    }
+  };
+};
+
 module.exports = {
   createFeeRecord,
   recordPayment,
@@ -237,5 +438,6 @@ module.exports = {
   getFeeById,
   updateFeeRecord,
   getFeeTransactions,
-  getCoachingRevenue
+  getCoachingRevenue,
+  getCoachingStudentWiseRevenueReport
 };
