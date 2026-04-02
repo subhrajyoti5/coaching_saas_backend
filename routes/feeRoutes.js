@@ -9,7 +9,8 @@ const {
   getCoachingFeeSummary,
   getFeeById,
   updateFeeRecord,
-  getFeeTransactions
+  getFeeTransactions,
+  getCoachingRevenue
 } = require('../controllers/feeController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOrOwner, studentOrOwner, studentOnly } = require('../middleware/roles');
@@ -28,6 +29,9 @@ router.get('/my-fees', authenticateToken, studentOnly, getMyFees);
 
 // Get fee records for a student (Owner/Teacher can access for any student in their center)
 router.get('/student/:studentId', authenticateToken, teacherOrOwner, validateStudentAccess, getStudentFees);
+
+// Get revenue (all payments) for a coaching center (Owner and Teacher can access)
+router.get('/coaching/:coachingId/revenue', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingRevenue);
 
 // Get fee records for a coaching center (Owner and Teacher can access)
 router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingFees);

@@ -92,6 +92,16 @@ const getFeeTransactions = async (req, res) => {
   }
 };
 
+const getCoachingRevenue = async (req, res) => {
+  try {
+    const coachingId = req.coachingId || req.params.coachingId;
+    const revenue = await feeService.getCoachingRevenue(coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ revenue });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ error: 'Failed to fetch revenue', message: error.message });
+  }
+};
+
 module.exports = {
   createFeeRecord,
   recordPayment,
@@ -101,5 +111,6 @@ module.exports = {
   getCoachingFeeSummary,
   getFeeById,
   updateFeeRecord,
-  getFeeTransactions
+  getFeeTransactions,
+  getCoachingRevenue
 };

@@ -242,6 +242,19 @@ const publishTest = async (req, res) => {
   }
 };
 
+const getCoachingStudentPerformance = async (req, res) => {
+  try {
+    const coachingId = req.coachingId || req.params.coachingId;
+    const performance = await testService.getCoachingStudentPerformance(coachingId);
+    return res.status(HTTP_STATUS.SUCCESS).json({ performance });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch student performance',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createTest,
   getTest,
@@ -259,5 +272,6 @@ module.exports = {
   getTeacherLeaderboard,
   getStudentLeaderboard,
   deleteTest,
-  publishTest
+  publishTest,
+  getCoachingStudentPerformance
 };
