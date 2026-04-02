@@ -286,3 +286,22 @@ CREATE INDEX idx_payments_fee ON payments(fee_id);
 CREATE INDEX idx_payment_claims_student ON payment_claims(student_id);
 CREATE INDEX idx_payment_claims_coaching_status ON payment_claims(coaching_center_id, status);
 CREATE INDEX idx_payment_claims_batch ON payment_claims(batch_id);
+
+-- ------------------------------------------------------------
+-- Incremental patch for already-running databases
+-- (safe to run even if table/index already exists)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    platform TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    app_version TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user_active
+ON device_tokens(user_id, is_active);
