@@ -309,20 +309,20 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 CREATE INDEX IF NOT EXISTS idx_device_tokens_user_active
 ON device_tokens(user_id, is_active);
 
-ALTER TABLE users
-ADD COLUMN IF NOT EXISTS phone TEXT;
+-- ALTER TABLE users
+-- ADD COLUMN IF NOT EXISTS phone TEXT;
 
-ALTER TABLE coaching_centers
-ADD COLUMN IF NOT EXISTS phone TEXT;
+-- ALTER TABLE coaching_centers
+-- ADD COLUMN IF NOT EXISTS phone TEXT;
 
-ALTER TABLE coaching_centers
-ADD COLUMN IF NOT EXISTS address TEXT;
+-- ALTER TABLE coaching_centers
+-- ADD COLUMN IF NOT EXISTS address TEXT;
 
-ALTER TABLE coaching_centers
-ADD COLUMN IF NOT EXISTS description TEXT;
+-- ALTER TABLE coaching_centers
+-- ADD COLUMN IF NOT EXISTS description TEXT;
 
-ALTER TABLE coaching_centers
-ADD COLUMN IF NOT EXISTS name_updated_at TIMESTAMP;
+-- ALTER TABLE coaching_centers
+-- ADD COLUMN IF NOT EXISTS name_updated_at TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_payment_claims_student_status_created
 ON payment_claims(student_id, status, created_at);
