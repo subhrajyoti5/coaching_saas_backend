@@ -40,23 +40,47 @@ const parseBatchIds = (payload = {}) => {
   return ids;
 };
 
-const mapDocumentForClient = (doc, extras = {}) => ({
-  id: doc.id,
-  title: doc.title,
-  description: extras.description || null,
-  fileName: extras.fileName || doc.title || 'Document',
-  fileSize: extras.fileSize || 0,
-  mimeType: extras.mimeType || null,
-  fileUrl: doc.file_url || null,
-  previewUrl: doc.file_url || null,
-  storageProvider: doc.storage_provider || null,
-  storageObjectKey: doc.storage_object_key || null,
-  isSharedWithStudents: extras.isSharedWithStudents ?? true,
-  createdAt: doc.uploaded_at,
-  uploadedBy: doc.uploaded_by,
-  batchId: doc.batch_id,
-  batch: doc.batch ? { id: doc.batch.id, name: doc.batch.name } : null
-});
+const resolveDocumentFileUrl = (doc = {}) => {
+  const directUrl = typeof doc.file_url === 'string' ? doc.file_url.trim() : '';
+  if (directUrl) return directUrl;
+
+  const storageProvider = typeof doc.storage_provider === 'string'
+    ? doc.storage_provider.trim().toLowerCase()
+    : '';
+  const objectKey = typeof doc.storage_object_key === 'string' ? doc.storage_object_key.trim() : '';
+
+  if (storageProvider === 'r2' && objectKey) {
+    try {
+      return getR2PublicUrl(objectKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const mapDocumentForClient = (doc, extras = {}) => {
+  const resolvedFileUrl = resolveDocumentFileUrl(doc);
+
+  return {
+    id: doc.id,
+    title: doc.title,
+    description: extras.description || null,
+    fileName: extras.fileName || doc.title || 'Document',
+    fileSize: extras.fileSize || 0,
+    mimeType: extras.mimeType || null,
+    fileUrl: resolvedFileUrl,
+    previewUrl: resolvedFileUrl,
+    storageProvider: doc.storage_provider || null,
+    storageObjectKey: doc.storage_object_key || null,
+    isSharedWithStudents: extras.isSharedWithStudents ?? true,
+    createdAt: doc.uploaded_at,
+    uploadedBy: doc.uploaded_by,
+    batchId: doc.batch_id,
+    batch: doc.batch ? { id: doc.batch.id, name: doc.batch.name } : null
+  };
+};
 
 const assertTeacherAssignedToBatch = async ({ userId, batchId, coachingId }) => {
   const assigned = await prisma.batchSubject.findFirst({
@@ -143,11 +167,33 @@ const uploadToR2 = async ({ userId, file }) => {
     })
   );
 
+  const fileUrl = getR2PublicUrl(key);
+  if (!fileUrl) {
+    throw new Error('R2 file URL generation failed after upload');
+  }
+
   return {
     objectKey: key,
-    fileUrl: getR2PublicUrl(key),
+    fileUrl,
     fileName: file.originalname || 'document'
   };
+};
+
+const ensureDocumentHasFileUrl = async (doc) => {
+  const resolvedFileUrl = resolveDocumentFileUrl(doc);
+  if (!resolvedFileUrl) {
+    throw new Error('Document file is not available');
+  }
+
+  const existingFileUrl = typeof doc.file_url === 'string' ? doc.file_url.trim() : '';
+  if (!existingFileUrl && doc.id) {
+    await prisma.document.update({
+      where: { id: Number(doc.id) },
+      data: { file_url: resolvedFileUrl }
+    });
+  }
+
+  return resolvedFileUrl;
 };
 
 const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }) => {
@@ -385,12 +431,7 @@ const validatePreviewAccess = async ({ userId, coachingId, role, documentId }) =
 
 const getDocumentPreviewUrl = async ({ userId, coachingId, role, documentId }) => {
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-
-  if (!doc.file_url) {
-    throw new Error('Document file is not available');
-  }
-
-  return doc.file_url;
+  return ensureDocumentHasFileUrl(doc);
 };
 
 const getPreviewDocumentByToken = async (token) => {
@@ -403,13 +444,10 @@ const getPreviewDocumentByToken = async (token) => {
   const { userId, coachingId, role, documentId } = decoded;
 
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-
-  if (!doc.file_url) {
-    throw new Error('Document file is not available');
-  }
+  const previewUrl = await ensureDocumentHasFileUrl(doc);
 
   return {
-    previewUrl: doc.file_url,
+    previewUrl,
     mimeType: 'application/octet-stream',
     fileName: doc.title || 'document'
   };
