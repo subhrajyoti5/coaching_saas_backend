@@ -43,8 +43,7 @@ const cancelSubscription = async (req, res) => {
   try {
     const result = await subscriptionService.cancelSubscription({
       userId: req.user.userId,
-      coachingId: req.user.coachingId,
-      cancelAtCycleEnd: req.body?.cancelAtCycleEnd !== false
+      coachingId: req.user.coachingId
     });
 
     return res.status(HTTP_STATUS.SUCCESS).json({
@@ -59,11 +58,33 @@ const cancelSubscription = async (req, res) => {
   }
 };
 
-const razorpayWebhook = async (req, res) => {
+const getEntitlementStatus = async (req, res) => {
   try {
-    const signature = req.headers['x-razorpay-signature'];
-    const result = await subscriptionService.processWebhook({
+    const status = await subscriptionService.getEntitlementStatus({
+      userId: req.user.userId,
+      coachingId: req.user.coachingId
+    });
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+      status
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch entitlement status',
+      message: error.message
+    });
+  }
+};
+
+const revenuecatWebhook = async (req, res) => {
+  try {
+    const signature = req.headers['x-revenuecat-signature'];
+    const authorization = req.headers.authorization;
+
+    const result = await subscriptionService.processRevenueCatWebhook({
       rawBody: req.body,
+      authorization,
       signature
     });
 
@@ -83,5 +104,6 @@ module.exports = {
   createSubscription,
   getMySubscription,
   cancelSubscription,
-  razorpayWebhook
+  getEntitlementStatus,
+  revenuecatWebhook
 };

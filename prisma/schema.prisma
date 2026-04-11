@@ -16,25 +16,26 @@ model CoachingCenter {
   name_updated_at  DateTime?              @db.Timestamp(6)
   created_at       DateTime?              @default(now()) @db.Timestamp(6)
 
-  users                 User[]
-  subscriptions         CoachingSubscription[]
-  batches               Batch[]
-  subjects              Subject[]
-  tests                 Test[]
-  notices               Notice[]
-  access_codes          AccessCode[]
-  join_requests         JoinRequest[]
+  users               User[]
+  subscriptions       CoachingSubscription[]
+  subscription_events SubscriptionEvent[]
+  batches             Batch[]
+  subjects            Subject[]
+  tests               Test[]
+  notices             Notice[]
+  access_codes        AccessCode[]
+  join_requests       JoinRequest[]
 
   @@map("coaching_centers")
 }
 
 model Plan {
-  id            Int                    @id @default(autoincrement())
-  name          String
-  price         Int
-  max_students  Int?
-  max_batches   Int?
-  max_teachers  Int?
+  id           Int    @id @default(autoincrement())
+  name         String
+  price        Int
+  max_students Int?
+  max_batches  Int?
+  max_teachers Int?
 
   subscriptions CoachingSubscription[]
 
@@ -42,67 +43,90 @@ model Plan {
 }
 
 model CoachingSubscription {
-  id                Int             @id @default(autoincrement())
-  coaching_center_id Int?
-  plan_id           Int?
-  start_date        DateTime?       @db.Date
-  end_date          DateTime?       @db.Date
-  status            String?
-  razorpay_subscription_id String?  @unique
-  razorpay_plan_id  String?
-  razorpay_customer_id String?
-  current_start     DateTime?       @db.Timestamp(6)
-  current_end       DateTime?       @db.Timestamp(6)
-  grace_end         DateTime?       @db.Timestamp(6)
-  cancel_at         DateTime?       @db.Timestamp(6)
-  cancelled_at      DateTime?       @db.Timestamp(6)
-  payment_fail_count Int?           @default(0)
-  metadata          Json?
+  id                       Int       @id @default(autoincrement())
+  coaching_center_id       Int?
+  plan_id                  Int?
+  start_date               DateTime? @db.Date
+  end_date                 DateTime? @db.Date
+  status                   String?
+  razorpay_subscription_id String?   @unique
+  razorpay_plan_id         String?
+  razorpay_customer_id     String?
+  current_start            DateTime? @db.Timestamp(6)
+  current_end              DateTime? @db.Timestamp(6)
+  grace_end                DateTime? @db.Timestamp(6)
+  cancel_at                DateTime? @db.Timestamp(6)
+  cancelled_at             DateTime? @db.Timestamp(6)
+  payment_fail_count       Int?      @default(0)
+  provider                 String?   @default("revenuecat")
+  revenuecat_app_user_id   String?
+  entitlement_id           String?
+  product_id               String?
+  original_transaction_id  String?
+  expires_at               DateTime? @db.Timestamp(6)
+  last_event_type          String?
+  last_event_at            DateTime? @db.Timestamp(6)
+  metadata                 Json?
 
-  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
-  plan              Plan?           @relation(fields: [plan_id], references: [id])
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  plan            Plan?           @relation(fields: [plan_id], references: [id])
 
   @@map("coaching_subscriptions")
 }
 
-model User {
-  id                Int               @id @default(autoincrement())
-  name              String
-  email             String
-  phone             String?
-  role              String
-  coaching_center_id Int?
-  is_active         Boolean?          @default(true)
-  created_at        DateTime?         @default(now()) @db.Timestamp(6)
-  last_login        DateTime?         @db.Timestamp(6)
-  trial_active      Boolean?          @default(false)
-  trial_end         DateTime?         @db.Timestamp(6)
-  subscription_status String?         @default("inactive")
-  subscription_id   String?
-  current_period_end DateTime?        @db.Timestamp(6)
-  grace_period_end  DateTime?         @db.Timestamp(6)
-  plan_type         String?           @default("basic")
+model SubscriptionEvent {
+  id                 Int      @id @default(autoincrement())
+  coaching_center_id Int
+  provider           String
+  provider_event_id  String   @unique
+  event_type         String
+  payload            Json?
+  processed_at       DateTime @default(now()) @db.Timestamp(6)
 
-  coaching_center   CoachingCenter?   @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
-  created_batches   Batch[]           @relation("BatchCreatedBy")
-  batch_subjects    BatchSubject[]    @relation("BatchSubjectTeacher")
-  batch_students    BatchStudent[]    @relation("BatchStudentUser")
-  schedules         BatchSchedule[]   @relation("BatchScheduleTeacher")
-  lectures          Lecture[]         @relation("LectureTeacher")
-  attendance        Attendance[]      @relation("AttendanceStudent")
-  created_tests     Test[]            @relation("TestCreatedBy")
-  attempts          TestAttempt[]     @relation("TestAttemptStudent")
-  fees              Fee[]             @relation("FeeStudent")
-  payments_recorded Payment[]         @relation("PaymentRecordedBy")
-  created_claims    PaymentClaim[]    @relation("ClaimCreatedBy")
-  verified_claims   PaymentClaim[]    @relation("ClaimVerifiedBy")
-  approved_claims   PaymentClaim[]    @relation("ClaimApprovedBy")
-  created_notices   Notice[]          @relation("NoticeCreatedBy")
-  documents         Document[]        @relation("DocumentUploadedBy")
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+
+  @@index([coaching_center_id, processed_at], map: "idx_subscription_events_center_processed")
+  @@map("subscription_events")
+}
+
+model User {
+  id                  Int       @id @default(autoincrement())
+  name                String
+  email               String
+  phone               String?
+  role                String
+  coaching_center_id  Int?
+  is_active           Boolean?  @default(true)
+  created_at          DateTime? @default(now()) @db.Timestamp(6)
+  last_login          DateTime? @db.Timestamp(6)
+  trial_active        Boolean?  @default(false)
+  trial_end           DateTime? @db.Timestamp(6)
+  subscription_status String?   @default("inactive")
+  subscription_id     String?
+  current_period_end  DateTime? @db.Timestamp(6)
+  grace_period_end    DateTime? @db.Timestamp(6)
+  plan_type           String?   @default("basic")
+
+  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  created_batches   Batch[]         @relation("BatchCreatedBy")
+  batch_subjects    BatchSubject[]  @relation("BatchSubjectTeacher")
+  batch_students    BatchStudent[]  @relation("BatchStudentUser")
+  schedules         BatchSchedule[] @relation("BatchScheduleTeacher")
+  lectures          Lecture[]       @relation("LectureTeacher")
+  attendance        Attendance[]    @relation("AttendanceStudent")
+  created_tests     Test[]          @relation("TestCreatedBy")
+  attempts          TestAttempt[]   @relation("TestAttemptStudent")
+  fees              Fee[]           @relation("FeeStudent")
+  payments_recorded Payment[]       @relation("PaymentRecordedBy")
+  created_claims    PaymentClaim[]  @relation("ClaimCreatedBy")
+  verified_claims   PaymentClaim[]  @relation("ClaimVerifiedBy")
+  approved_claims   PaymentClaim[]  @relation("ClaimApprovedBy")
+  created_notices   Notice[]        @relation("NoticeCreatedBy")
+  documents         Document[]      @relation("DocumentUploadedBy")
   device_tokens     DeviceToken[]
 
-  @@index([coaching_center_id], map: "idx_users_center")
   @@unique([email, coaching_center_id], map: "uniq_users_email_center")
+  @@index([coaching_center_id], map: "idx_users_center")
   @@map("users")
 }
 
@@ -117,22 +141,22 @@ model DeviceToken {
   updated_at   DateTime? @default(now()) @db.Timestamp(6)
   last_seen_at DateTime? @default(now()) @db.Timestamp(6)
 
-  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id, is_active], map: "idx_device_tokens_user_active")
   @@map("device_tokens")
 }
 
 model AccessCode {
-  id                 Int            @id @default(autoincrement())
-  code               String         @unique
+  id                 Int      @id @default(autoincrement())
+  code               String   @unique
   role               String
   coaching_center_id Int
   expires_at         DateTime
-  is_active          Boolean        @default(true)
-  created_at         DateTime       @default(now())
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now())
 
-  coaching_center    CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
 
   @@index([code])
   @@index([coaching_center_id, role, is_active, expires_at], map: "idx_access_codes_center_role_active")
@@ -140,17 +164,17 @@ model AccessCode {
 }
 
 model JoinRequest {
-  id                 Int            @id @default(autoincrement())
+  id                 Int      @id @default(autoincrement())
   name               String
   email              String
   role               String
   coaching_center_id Int
-  status             String         @default("PENDING")
-  created_at         DateTime       @default(now())
-  updated_at         DateTime       @updatedAt
+  status             String   @default("PENDING")
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
   expires_at         DateTime
 
-  coaching_center    CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
 
   @@unique([email, coaching_center_id, role])
   @@index([status])
@@ -160,55 +184,55 @@ model JoinRequest {
 }
 
 model Batch {
-  id                Int               @id @default(autoincrement())
-  name              String
+  id                 Int       @id @default(autoincrement())
+  name               String
   coaching_center_id Int?
-  price             Int               @default(0)
-  created_by        Int?
-  created_at        DateTime?         @default(now()) @db.Timestamp(6)
+  price              Int       @default(0)
+  created_by         Int?
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
 
-  coaching_center   CoachingCenter?   @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
-  creator           User?             @relation("BatchCreatedBy", fields: [created_by], references: [id])
-  batch_subjects    BatchSubject[]
-  batch_students    BatchStudent[]
-  schedules         BatchSchedule[]
-  lectures          Lecture[]
-  test_batches      TestBatch[]
-  attempts          TestAttempt[]
-  fees              Fee[]
-  payment_claims    PaymentClaim[]
-  notice_targets    NoticeTarget[]
-  documents         Document[]
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  creator         User?           @relation("BatchCreatedBy", fields: [created_by], references: [id])
+  batch_subjects  BatchSubject[]
+  batch_students  BatchStudent[]
+  schedules       BatchSchedule[]
+  lectures        Lecture[]
+  test_batches    TestBatch[]
+  attempts        TestAttempt[]
+  fees            Fee[]
+  payment_claims  PaymentClaim[]
+  notice_targets  NoticeTarget[]
+  documents       Document[]
 
   @@index([coaching_center_id], map: "idx_batches_center")
   @@map("batches")
 }
 
 model Subject {
-  id                Int               @id @default(autoincrement())
-  name              String
+  id                 Int    @id @default(autoincrement())
+  name               String
   coaching_center_id Int?
 
-  coaching_center   CoachingCenter?   @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
-  batch_subjects    BatchSubject[]
-  schedules         BatchSchedule[]
-  lectures          Lecture[]
-  tests             Test[]
-  documents         Document[]
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  batch_subjects  BatchSubject[]
+  schedules       BatchSchedule[]
+  lectures        Lecture[]
+  tests           Test[]
+  documents       Document[]
 
   @@index([coaching_center_id], map: "idx_subjects_center")
   @@map("subjects")
 }
 
 model BatchSubject {
-  id         Int      @id @default(autoincrement())
+  id         Int  @id @default(autoincrement())
   batch_id   Int?
   subject_id Int?
   teacher_id Int?
 
-  batch      Batch?   @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  subject    Subject? @relation(fields: [subject_id], references: [id], onDelete: Cascade)
-  teacher    User?    @relation("BatchSubjectTeacher", fields: [teacher_id], references: [id])
+  batch   Batch?   @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subject_id], references: [id], onDelete: Cascade)
+  teacher User?    @relation("BatchSubjectTeacher", fields: [teacher_id], references: [id])
 
   @@map("batch_subjects")
 }
@@ -219,8 +243,8 @@ model BatchStudent {
   student_id Int?
   joined_at  DateTime? @default(now()) @db.Timestamp(6)
 
-  batch      Batch?    @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  student    User?     @relation("BatchStudentUser", fields: [student_id], references: [id])
+  batch   Batch? @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  student User?  @relation("BatchStudentUser", fields: [student_id], references: [id])
 
   @@index([batch_id], map: "idx_batch_students_batch")
   @@map("batch_students")
@@ -235,9 +259,9 @@ model BatchSchedule {
   start_time  DateTime? @db.Time(6)
   end_time    DateTime? @db.Time(6)
 
-  batch       Batch?    @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  subject     Subject?  @relation(fields: [subject_id], references: [id])
-  teacher     User?     @relation("BatchScheduleTeacher", fields: [teacher_id], references: [id])
+  batch   Batch?   @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subject_id], references: [id])
+  teacher User?    @relation("BatchScheduleTeacher", fields: [teacher_id], references: [id])
 
   @@map("batch_schedule")
 }
@@ -252,93 +276,93 @@ model Lecture {
   end_time     DateTime? @db.Time(6)
   topic        String?
 
-  batch        Batch?    @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  subject      Subject?  @relation(fields: [subject_id], references: [id])
-  teacher      User?     @relation("LectureTeacher", fields: [teacher_id], references: [id])
-  attendance   Attendance[]
-  documents    Document[]
+  batch      Batch?       @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject    Subject?     @relation(fields: [subject_id], references: [id])
+  teacher    User?        @relation("LectureTeacher", fields: [teacher_id], references: [id])
+  attendance Attendance[]
+  documents  Document[]
 
   @@map("lectures")
 }
 
 model Attendance {
-  id         Int               @id @default(autoincrement())
+  id         Int       @id @default(autoincrement())
   lecture_id Int?
   student_id Int?
   status     String?
-  marked_at  DateTime?         @default(now()) @db.Timestamp(6)
+  marked_at  DateTime? @default(now()) @db.Timestamp(6)
 
-  lecture    Lecture?          @relation(fields: [lecture_id], references: [id], onDelete: Cascade)
-  student    User?             @relation("AttendanceStudent", fields: [student_id], references: [id])
+  lecture Lecture? @relation(fields: [lecture_id], references: [id], onDelete: Cascade)
+  student User?    @relation("AttendanceStudent", fields: [student_id], references: [id])
 
   @@index([lecture_id], map: "idx_attendance_lecture")
   @@map("attendance")
 }
 
 model Test {
-  id                Int          @id @default(autoincrement())
-  title             String?
-  subject_id        Int?
+  id                 Int       @id @default(autoincrement())
+  title              String?
+  subject_id         Int?
   coaching_center_id Int?
-  duration_minutes  Int?
-  start_time        DateTime?    @db.Timestamp(6)
-  end_time          DateTime?    @db.Timestamp(6)
-  created_by        Int?
-  results_published Boolean?     @default(false)
-  created_at        DateTime?    @default(now()) @db.Timestamp(6)
+  duration_minutes   Int?
+  start_time         DateTime? @db.Timestamp(6)
+  end_time           DateTime? @db.Timestamp(6)
+  created_by         Int?
+  results_published  Boolean?  @default(false)
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
 
-  subject           Subject?     @relation(fields: [subject_id], references: [id])
-  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
-  creator           User?        @relation("TestCreatedBy", fields: [created_by], references: [id])
-  test_batches      TestBatch[]
-  questions         Question[]
-  attempts          TestAttempt[]
-  documents         Document[]
+  subject         Subject?        @relation(fields: [subject_id], references: [id])
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
+  creator         User?           @relation("TestCreatedBy", fields: [created_by], references: [id])
+  test_batches    TestBatch[]
+  questions       Question[]
+  attempts        TestAttempt[]
+  documents       Document[]
 
   @@index([subject_id], map: "idx_tests_subject")
   @@map("tests")
 }
 
 model TestBatch {
-  id      Int    @id @default(autoincrement())
-  test_id Int?
+  id       Int  @id @default(autoincrement())
+  test_id  Int?
   batch_id Int?
 
-  test    Test?  @relation(fields: [test_id], references: [id], onDelete: Cascade)
-  batch   Batch? @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  test  Test?  @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  batch Batch? @relation(fields: [batch_id], references: [id], onDelete: Cascade)
 
   @@map("test_batches")
 }
 
 model Question {
-  id             Int       @id @default(autoincrement())
+  id             Int     @id @default(autoincrement())
   test_id        Int?
   question       String
   option_a       String?
   option_b       String?
   option_c       String?
   option_d       String?
-  correct_option String?   @db.Char(1)
-  marks          Int?      @default(1)
+  correct_option String? @db.Char(1)
+  marks          Int?    @default(1)
 
-  test           Test?     @relation(fields: [test_id], references: [id], onDelete: Cascade)
-  answers        TestAnswer[]
+  test    Test?        @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  answers TestAnswer[]
 
   @@map("questions")
 }
 
 model TestAttempt {
-  id           Int        @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   test_id      Int?
   student_id   Int?
   batch_id     Int?
   score        Int?
-  submitted_at DateTime?  @default(now()) @db.Timestamp(6)
+  submitted_at DateTime? @default(now()) @db.Timestamp(6)
 
-  test         Test?      @relation(fields: [test_id], references: [id], onDelete: Cascade)
-  student      User?      @relation("TestAttemptStudent", fields: [student_id], references: [id])
-  batch        Batch?     @relation(fields: [batch_id], references: [id])
-  answers      TestAnswer[]
+  test    Test?        @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  student User?        @relation("TestAttemptStudent", fields: [student_id], references: [id])
+  batch   Batch?       @relation(fields: [batch_id], references: [id])
+  answers TestAnswer[]
 
   @@unique([test_id, student_id])
   @@index([test_id, score(sort: Desc)], map: "idx_test_score")
@@ -346,15 +370,15 @@ model TestAttempt {
 }
 
 model TestAnswer {
-  id              Int         @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   attempt_id      Int?
   question_id     Int?
-  selected_option String?     @db.Char(1)
+  selected_option String?  @db.Char(1)
   is_correct      Boolean?
   marks_awarded   Int?
 
-  attempt         TestAttempt? @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
-  question        Question?    @relation(fields: [question_id], references: [id])
+  attempt  TestAttempt? @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  question Question?    @relation(fields: [question_id], references: [id])
 
   @@index([attempt_id], map: "idx_test_answers_attempt")
   @@map("test_answers")
@@ -368,9 +392,9 @@ model Fee {
   due_date   DateTime? @db.Date
   created_at DateTime? @default(now()) @db.Timestamp(6)
 
-  student    User?     @relation("FeeStudent", fields: [student_id], references: [id])
-  batch      Batch?    @relation(fields: [batch_id], references: [id])
-  payments   Payment[]
+  student  User?     @relation("FeeStudent", fields: [student_id], references: [id])
+  batch    Batch?    @relation(fields: [batch_id], references: [id])
+  payments Payment[]
 
   @@map("fees")
 }
@@ -382,8 +406,8 @@ model Payment {
   paid_at     DateTime? @default(now()) @db.Timestamp(6)
   recorded_by Int?
 
-  fee         Fee?      @relation(fields: [fee_id], references: [id], onDelete: Cascade)
-  recorder    User?     @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
+  fee      Fee?  @relation(fields: [fee_id], references: [id], onDelete: Cascade)
+  recorder User? @relation("PaymentRecordedBy", fields: [recorded_by], references: [id])
 
   @@index([fee_id], map: "idx_payments_fee")
   @@map("payments")
@@ -407,10 +431,10 @@ model PaymentClaim {
   created_at         DateTime? @default(now()) @db.Timestamp(6)
   updated_at         DateTime? @updatedAt @db.Timestamp(6)
 
-  student            User      @relation("ClaimCreatedBy", fields: [student_id], references: [id])
-  batch              Batch     @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  verifier           User?     @relation("ClaimVerifiedBy", fields: [verified_by], references: [id])
-  approver           User?     @relation("ClaimApprovedBy", fields: [approved_by], references: [id])
+  student  User  @relation("ClaimCreatedBy", fields: [student_id], references: [id])
+  batch    Batch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  verifier User? @relation("ClaimVerifiedBy", fields: [verified_by], references: [id])
+  approver User? @relation("ClaimApprovedBy", fields: [approved_by], references: [id])
 
   @@index([student_id], map: "idx_payment_claims_student")
   @@index([coaching_center_id, status], map: "idx_payment_claims_coaching_status")
@@ -421,47 +445,47 @@ model PaymentClaim {
 }
 
 model Notice {
-  id                Int       @id @default(autoincrement())
-  title             String?
-  content           String?
+  id                 Int       @id @default(autoincrement())
+  title              String?
+  content            String?
   coaching_center_id Int?
-  created_by        Int?
-  created_at        DateTime? @default(now()) @db.Timestamp(6)
+  created_by         Int?
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
 
-  coaching_center   CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
-  creator           User?           @relation("NoticeCreatedBy", fields: [created_by], references: [id])
-  targets           NoticeTarget[]
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
+  creator         User?           @relation("NoticeCreatedBy", fields: [created_by], references: [id])
+  targets         NoticeTarget[]
 
   @@map("notices")
 }
 
 model NoticeTarget {
-  id        Int     @id @default(autoincrement())
+  id        Int  @id @default(autoincrement())
   notice_id Int?
   batch_id  Int?
 
-  notice    Notice? @relation(fields: [notice_id], references: [id], onDelete: Cascade)
-  batch     Batch?  @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  notice Notice? @relation(fields: [notice_id], references: [id], onDelete: Cascade)
+  batch  Batch?  @relation(fields: [batch_id], references: [id], onDelete: Cascade)
 
   @@map("notice_targets")
 }
 
 model Document {
-  id           Int       @id @default(autoincrement())
-  title        String?
+  id            Int       @id @default(autoincrement())
+  title         String?
   drive_file_id String?
-  batch_id     Int?
-  subject_id   Int?
-  lecture_id   Int?
-  test_id      Int?
-  uploaded_by  Int?
-  uploaded_at  DateTime? @default(now()) @db.Timestamp(6)
+  batch_id      Int?
+  subject_id    Int?
+  lecture_id    Int?
+  test_id       Int?
+  uploaded_by   Int?
+  uploaded_at   DateTime? @default(now()) @db.Timestamp(6)
 
-  batch        Batch?    @relation(fields: [batch_id], references: [id])
-  subject      Subject?  @relation(fields: [subject_id], references: [id])
-  lecture      Lecture?  @relation(fields: [lecture_id], references: [id])
-  test         Test?     @relation(fields: [test_id], references: [id])
-  uploader     User?     @relation("DocumentUploadedBy", fields: [uploaded_by], references: [id])
+  batch    Batch?   @relation(fields: [batch_id], references: [id])
+  subject  Subject? @relation(fields: [subject_id], references: [id])
+  lecture  Lecture? @relation(fields: [lecture_id], references: [id])
+  test     Test?    @relation(fields: [test_id], references: [id])
+  uploader User?    @relation("DocumentUploadedBy", fields: [uploaded_by], references: [id])
 
   @@map("documents")
 }

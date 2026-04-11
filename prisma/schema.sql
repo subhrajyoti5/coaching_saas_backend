@@ -32,8 +32,29 @@ CREATE TABLE coaching_subscriptions (
     cancel_at TIMESTAMP,
     cancelled_at TIMESTAMP,
     payment_fail_count INTEGER DEFAULT 0,
+    provider TEXT DEFAULT 'revenuecat',
+    revenuecat_app_user_id TEXT,
+    entitlement_id TEXT,
+    product_id TEXT,
+    original_transaction_id TEXT,
+    expires_at TIMESTAMP,
+    last_event_type TEXT,
+    last_event_at TIMESTAMP,
     metadata JSONB
 );
+
+CREATE TABLE subscription_events (
+    id SERIAL PRIMARY KEY,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_event_id TEXT UNIQUE NOT NULL,
+    event_type TEXT NOT NULL,
+    payload JSONB,
+    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_subscription_events_center_processed
+ON subscription_events(coaching_center_id, processed_at);
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
