@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
@@ -141,6 +141,18 @@ const sanitizeFileName = (fileName) => {
 const buildR2ObjectKey = ({ userId, file }) => {
   const safeName = sanitizeFileName(file?.originalname || 'document');
   return `documents/${Number(userId)}/${Date.now()}-${safeName}`;
+};
+
+const extractObjectKeyFromUrl = (fileUrl = '') => {
+  if (typeof fileUrl !== 'string' || !fileUrl.trim()) return null;
+
+  try {
+    const parsed = new URL(fileUrl);
+    const key = decodeURIComponent((parsed.pathname || '').replace(/^\/+/, ''));
+    return key || null;
+  } catch (_) {
+    return null;
+  }
 };
 
 const uploadToR2 = async ({ userId, file }) => {
@@ -431,8 +443,11 @@ const validatePreviewAccess = async ({ userId, coachingId, role, documentId }) =
 };
 
 const getDocumentPreviewUrl = async ({ userId, coachingId, role, documentId }) => {
-  const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-  return ensureDocumentHasFileUrl(doc);
+  await validatePreviewAccess({ userId, coachingId, role, documentId });
+  const token = createPreviewUrlToken({ userId, coachingId, role, documentId });
+  const baseUrl = process.env.API_BASE_URL || '';
+  const previewPath = `/api/documents/preview/${token}`;
+  return baseUrl ? `${baseUrl}${previewPath}` : previewPath;
 };
 
 const getPreviewDocumentByToken = async (token) => {
@@ -445,11 +460,56 @@ const getPreviewDocumentByToken = async (token) => {
   const { userId, coachingId, role, documentId } = decoded;
 
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-  const previewUrl = await ensureDocumentHasFileUrl(doc);
+
+  const objectKey =
+    (typeof doc.storage_object_key === 'string' && doc.storage_object_key.trim())
+      ? doc.storage_object_key.trim()
+      : extractObjectKeyFromUrl(doc.file_url);
+
+  if (!objectKey) {
+    throw new Error('Document file is not available');
+  }
+
+  const bucket = process.env.R2_BUCKET;
+  if (!bucket) {
+    throw new Error('R2_BUCKET is not configured in environment variables');
+  }
+
+  const r2 = createR2Client();
+  const objectResp = await r2.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: objectKey
+    })
+  );
+
+  const resolvedFileUrl = resolveDocumentFileUrl({
+    ...doc,
+    storage_object_key: objectKey
+  });
+
+  if (doc.id && objectKey && doc.storage_object_key !== objectKey) {
+    await prisma.document.update({
+      where: { id: Number(doc.id) },
+      data: {
+        storage_object_key: objectKey,
+        storage_provider: 'r2',
+        ...(resolvedFileUrl ? { file_url: resolvedFileUrl } : {})
+      }
+    });
+  } else if (doc.id && !doc.file_url && resolvedFileUrl) {
+    await prisma.document.update({
+      where: { id: Number(doc.id) },
+      data: {
+        file_url: resolvedFileUrl,
+        storage_provider: 'r2'
+      }
+    });
+  }
 
   return {
-    previewUrl,
-    mimeType: 'application/octet-stream',
+    stream: objectResp.Body,
+    mimeType: objectResp.ContentType || 'application/octet-stream',
     fileName: doc.title || 'document'
   };
 };
