@@ -44,12 +44,9 @@ const resolveDocumentFileUrl = (doc = {}) => {
   const directUrl = typeof doc.file_url === 'string' ? doc.file_url.trim() : '';
   if (directUrl) return directUrl;
 
-  const storageProvider = typeof doc.storage_provider === 'string'
-    ? doc.storage_provider.trim().toLowerCase()
-    : '';
   const objectKey = typeof doc.storage_object_key === 'string' ? doc.storage_object_key.trim() : '';
 
-  if (storageProvider === 'r2' && objectKey) {
+  if (objectKey) {
     try {
       return getR2PublicUrl(objectKey);
     } catch (_) {
@@ -186,10 +183,14 @@ const ensureDocumentHasFileUrl = async (doc) => {
   }
 
   const existingFileUrl = typeof doc.file_url === 'string' ? doc.file_url.trim() : '';
+  const existingProvider = typeof doc.storage_provider === 'string' ? doc.storage_provider.trim() : '';
   if (!existingFileUrl && doc.id) {
     await prisma.document.update({
       where: { id: Number(doc.id) },
-      data: { file_url: resolvedFileUrl }
+      data: {
+        file_url: resolvedFileUrl,
+        storage_provider: existingProvider || 'r2'
+      }
     });
   }
 
