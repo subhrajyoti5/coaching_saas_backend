@@ -123,9 +123,12 @@ const getPreviewUrl = async (req, res) => {
 const previewDocument = async (req, res) => {
   try {
     const { token } = req.params;
-    const { previewUrl } = await documentService.getPreviewDocumentByToken(token);
+    const { stream, mimeType, fileName } = await documentService.getPreviewDocumentByToken(token);
 
-    return res.redirect(302, previewUrl);
+    res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(fileName || 'document')}"`);
+
+    return stream.pipe(res);
   } catch (error) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
       error: 'Failed to preview document',
