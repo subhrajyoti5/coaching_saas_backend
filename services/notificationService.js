@@ -283,7 +283,7 @@ const sendMaterialUpdateNotification = async ({ recipientUserIds = [], material 
       title,
       batchId: material?.batchId,
       coachingId: material?.coachingId,
-      driveFileId: material?.driveFileId
+      fileUrl: material?.fileUrl
     },
     androidTag: `material_${material?.id || 'update'}`
   });

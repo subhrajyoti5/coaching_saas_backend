@@ -53,7 +53,6 @@ app.use('/api/payment-claims', require('./routes/paymentClaimRoutes'));
 app.use('/api/tests', require('./routes/testRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
 app.use('/api/attendance', require('./routes/attendanceRoutes'));
-app.use('/api/drive', require('./routes/driveRoutes'));
 app.use('/api/documents', require('./routes/documentRoutes'));
 app.use('/api/subscriptions', require('./routes/subscriptionRoutes'));
 app.use('/api/webhooks', require('./routes/webhookRoutes'));

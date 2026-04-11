@@ -291,7 +291,9 @@ CREATE TABLE notice_targets (
 CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
     title TEXT,
-    drive_file_id TEXT,
+    storage_provider TEXT DEFAULT 'r2',
+    storage_object_key TEXT,
+    file_url TEXT,
     batch_id INTEGER REFERENCES batches(id),
     subject_id INTEGER REFERENCES subjects(id),
     lecture_id INTEGER REFERENCES lectures(id),
@@ -350,3 +352,12 @@ ON payment_claims(student_id, status, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_payment_claims_student_created
 ON payment_claims(student_id, created_at);
+
+ALTER TABLE documents
+ADD COLUMN IF NOT EXISTS storage_provider TEXT DEFAULT 'r2';
+
+ALTER TABLE documents
+ADD COLUMN IF NOT EXISTS storage_object_key TEXT;
+
+ALTER TABLE documents
+ADD COLUMN IF NOT EXISTS file_url TEXT;

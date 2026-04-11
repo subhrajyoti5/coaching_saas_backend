@@ -1,10 +1,12 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { Readable } = require('stream');
+const path = require('path');
+const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 const notificationService = require('./notificationService');
-const { getDeveloperDriveClient, setDriveFilePermissions } = require('./googleDriveService');
+const { createR2Client, getR2PublicUrl } = require('../utils/r2');
 
 const parseSharedBoolean = (value) => {
   if (typeof value === 'boolean') return value;
@@ -45,7 +47,10 @@ const mapDocumentForClient = (doc, extras = {}) => ({
   fileName: extras.fileName || doc.title || 'Document',
   fileSize: extras.fileSize || 0,
   mimeType: extras.mimeType || null,
-  driveFileId: doc.drive_file_id,
+  fileUrl: doc.file_url || null,
+  previewUrl: doc.file_url || null,
+  storageProvider: doc.storage_provider || null,
+  storageObjectKey: doc.storage_object_key || null,
   isSharedWithStudents: extras.isSharedWithStudents ?? true,
   createdAt: doc.uploaded_at,
   uploadedBy: doc.uploaded_by,
@@ -100,24 +105,49 @@ const resolveMaterialRecipientIds = async ({ batchIds = [], uploaderId }) => {
   )];
 };
 
-const uploadToDrive = async ({ userId, file }) => {
-  const drive = await getDeveloperDriveClient();
+const sanitizeFileName = (fileName) => {
+  const parsed = path.parse(fileName || 'document');
+  const name = (parsed.name || 'document')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 80) || 'document';
 
-  const created = await drive.files.create({
-    requestBody: {
-      name: file.originalname,
-      mimeType: file.mimetype,
-      description: `Uploaded to Coaching SaaS by ${userId}`
-    },
-    media: {
-      mimeType: file.mimetype,
-      body: Readable.from(file.buffer)
-    },
-    fields: 'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink,owners'
-  });
+  const extension = (parsed.ext || '').toLowerCase();
+  return `${name}${extension}`;
+};
 
-  await setDriveFilePermissions(drive, created.data.id);
-  return created.data;
+const buildR2ObjectKey = ({ userId, file }) => {
+  const safeName = sanitizeFileName(file?.originalname || 'document');
+  return `documents/${Number(userId)}/${Date.now()}-${safeName}`;
+};
+
+const uploadToR2 = async ({ userId, file }) => {
+  const bucket = process.env.R2_BUCKET;
+  if (!bucket) {
+    throw new Error('R2_BUCKET is not configured in environment variables');
+  }
+
+  const key = buildR2ObjectKey({ userId, file });
+  const r2 = createR2Client();
+
+  await r2.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mimetype || 'application/octet-stream',
+      Metadata: {
+        originalname: sanitizeFileName(file.originalname || 'document')
+      }
+    })
+  );
+
+  return {
+    objectKey: key,
+    fileUrl: getR2PublicUrl(key),
+    fileName: file.originalname || 'document'
+  };
 };
 
 const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }) => {
@@ -142,15 +172,17 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
     batches.push(batch);
   }
 
-  const driveMeta = await uploadToDrive({ userId, file });
+  const uploadedFile = await uploadToR2({ userId, file });
 
   const createdDocuments = await prisma.$transaction(async (tx) => {
     const docs = [];
     for (const batch of batches) {
       const created = await tx.document.create({
         data: {
-          title: title || driveMeta.name || file.originalname,
-          drive_file_id: driveMeta.id,
+          title: title || uploadedFile.fileName,
+          storage_provider: 'r2',
+          storage_object_key: uploadedFile.objectKey,
+          file_url: uploadedFile.fileUrl,
           batch_id: Number(batch.id),
           uploaded_by: Number(userId)
         },
@@ -168,14 +200,18 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
     action: 'UPLOAD_TEACHER_DOCUMENT',
     entityType: 'DOCUMENT',
     entityId: createdDocuments[0].id,
-    metadata: { batchIds: batches.map((batch) => batch.id), driveFileId: driveMeta.id }
+    metadata: {
+      batchIds: batches.map((batch) => batch.id),
+      storageObjectKey: uploadedFile.objectKey,
+      fileUrl: uploadedFile.fileUrl
+    }
   });
 
   const mappedDocuments = createdDocuments.map((document) => mapDocumentForClient(document, {
     description: payload.description || null,
-    fileName: driveMeta.name || file.originalname,
-    fileSize: Number(driveMeta.size || file.size || 0),
-    mimeType: driveMeta.mimeType || file.mimetype,
+    fileName: uploadedFile.fileName,
+    fileSize: Number(file.size || 0),
+    mimeType: file.mimetype,
     isSharedWithStudents: parseSharedBoolean(payload.isSharedWithStudents)
   }));
 
@@ -197,7 +233,7 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
           batchId: firstMaterial?.batchId,
           batchName: firstBatch,
           coachingId,
-          driveFileId: firstMaterial?.driveFileId
+          fileUrl: firstMaterial?.fileUrl
         }
       });
     }
@@ -348,14 +384,16 @@ const validatePreviewAccess = async ({ userId, coachingId, role, documentId }) =
 };
 
 const getDocumentPreviewUrl = async ({ userId, coachingId, role, documentId }) => {
-  await validatePreviewAccess({ userId, coachingId, role, documentId });
-  const token = createPreviewUrlToken({ userId, coachingId, role, documentId });
-  const baseUrl = process.env.API_BASE_URL || '';
-  const path = `/api/documents/preview/${token}`;
-  return baseUrl ? `${baseUrl}${path}` : path;
+  const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
+
+  if (!doc.file_url) {
+    throw new Error('Document file is not available');
+  }
+
+  return doc.file_url;
 };
 
-const getPreviewStreamByToken = async (token) => {
+const getPreviewDocumentByToken = async (token) => {
   const secret = process.env.DOCUMENT_PREVIEW_SECRET || process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('DOCUMENT_PREVIEW_SECRET or JWT_SECRET must be configured');
@@ -365,25 +403,15 @@ const getPreviewStreamByToken = async (token) => {
   const { userId, coachingId, role, documentId } = decoded;
 
   const doc = await validatePreviewAccess({ userId, coachingId, role, documentId });
-  const drive = await getDeveloperDriveClient();
 
-  const metadataResp = await drive.files.get({
-    fileId: doc.drive_file_id,
-    fields: 'name,mimeType'
-  });
-
-  const fileResp = await drive.files.get(
-    {
-      fileId: doc.drive_file_id,
-      alt: 'media'
-    },
-    { responseType: 'stream' }
-  );
+  if (!doc.file_url) {
+    throw new Error('Document file is not available');
+  }
 
   return {
-    stream: fileResp.data,
-    mimeType: metadataResp.data.mimeType || 'application/octet-stream',
-    fileName: metadataResp.data.name || doc.title || 'document'
+    previewUrl: doc.file_url,
+    mimeType: 'application/octet-stream',
+    fileName: doc.title || 'document'
   };
 };
 
@@ -394,5 +422,5 @@ module.exports = {
   deleteTeacherDocument,
   getStudentDocumentFeed,
   getDocumentPreviewUrl,
-  getPreviewStreamByToken
+  getPreviewDocumentByToken
 };
