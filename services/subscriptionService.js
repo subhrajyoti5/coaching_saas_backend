@@ -1,8 +1,7 @@
 const crypto = require('crypto');
-const Razorpay = require('razorpay');
 
 const prisma = require('../config/database');
-const { SUBSCRIPTION_STATUS, WEBHOOK_EVENTS, ROLES } = require('../config/constants');
+const { SUBSCRIPTION_STATUS, REVENUECAT_WEBHOOK_EVENTS, ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 const notificationService = require('./notificationService');
 
@@ -16,16 +15,9 @@ const getRequiredEnv = (name) => {
   return value;
 };
 
-const getRazorpayClient = () => {
-  return new Razorpay({
-    key_id: getRequiredEnv('RAZORPAY_KEY_ID'),
-    key_secret: getRequiredEnv('RAZORPAY_KEY_SECRET')
-  });
-};
-
-const fromUnixTs = (value) => {
-  if (!value) return null;
-  return new Date(Number(value) * 1000);
+const fromMsTs = (value) => {
+  if (!value && value !== 0) return null;
+  return new Date(Number(value));
 };
 
 const mapUserSubscription = (user) => ({
@@ -73,7 +65,14 @@ const setCenterSubscriptionState = async (tx, coachingId, payload) => {
 };
 
 const normalizeSubscription = (subRecord, ownerUser) => ({
-  subscriptionId: subRecord?.razorpay_subscription_id || ownerUser.subscription_id,
+  provider: subRecord?.provider || 'revenuecat',
+  appUserId: subRecord?.revenuecat_app_user_id || null,
+  entitlementId: subRecord?.entitlement_id || null,
+  productId: subRecord?.product_id || null,
+  subscriptionId:
+    subRecord?.original_transaction_id ||
+    subRecord?.revenuecat_app_user_id ||
+    ownerUser.subscription_id,
   status: ownerUser.subscription_status || SUBSCRIPTION_STATUS.INACTIVE,
   currentPeriodEnd: ownerUser.current_period_end,
   gracePeriodEnd: ownerUser.grace_period_end,
@@ -84,84 +83,69 @@ const normalizeSubscription = (subRecord, ownerUser) => ({
   coachingName: ownerUser.coaching_center?.name || null
 });
 
+const buildAppUserId = ({ userId, coachingId }) => {
+  return `owner:${Number(userId)}:coaching:${Number(coachingId)}`;
+};
+
+const parseAppUserId = (appUserId) => {
+  const match = /^owner:(\d+):coaching:(\d+)$/.exec((appUserId || '').trim());
+  if (!match) return null;
+
+  return {
+    userId: Number(match[1]),
+    coachingId: Number(match[2])
+  };
+};
+
 const createSubscription = async ({ userId, coachingId }) => {
   const owner = await ensureOwnerContext({ userId, coachingId });
+  const appUserId = buildAppUserId({ userId, coachingId });
 
-  if (
-    owner.subscription_status === SUBSCRIPTION_STATUS.ACTIVE &&
-    owner.subscription_id
-  ) {
-    throw new Error('Subscription is already active for this coaching center');
-  }
-
-  const planId = getRequiredEnv('RAZORPAY_PLAN_ID_MONTHLY');
-  const razorpay = getRazorpayClient();
-
-  const subscription = await razorpay.subscriptions.create({
-    plan_id: planId,
-    customer_notify: 1,
-    total_count: 120,
-    notes: {
-      coachingId: String(coachingId),
-      ownerId: String(userId),
-      ownerEmail: owner.email
-    }
+  const existingSubscription = await prisma.coachingSubscription.findFirst({
+    where: { coaching_center_id: Number(coachingId) },
+    orderBy: { id: 'desc' }
   });
 
-  const now = new Date();
-
-  const subRecord = await prisma.$transaction(async (tx) => {
-    const created = await tx.coachingSubscription.create({
-      data: {
-        coaching_center_id: Number(coachingId),
-        status: subscription.status,
-        razorpay_subscription_id: subscription.id,
-        razorpay_plan_id: subscription.plan_id || planId,
-        current_start: fromUnixTs(subscription.current_start),
-        current_end: fromUnixTs(subscription.current_end),
-        metadata: subscription
-      }
-    });
-
-    await setCenterSubscriptionState(tx, coachingId, {
-      subscription_status: SUBSCRIPTION_STATUS.INACTIVE,
-      subscription_id: subscription.id,
-      current_period_end: null,
-      grace_period_end: null,
-      plan_type: 'basic',
-      trial_active: false,
-      trial_end: now
-    });
-
-    return created;
-  });
+  const subRecord = existingSubscription
+    ? await prisma.coachingSubscription.update({
+        where: { id: existingSubscription.id },
+        data: {
+          provider: 'revenuecat',
+          revenuecat_app_user_id: appUserId,
+          entitlement_id: 'Shixa Pro'
+        }
+      })
+    : await prisma.coachingSubscription.create({
+        data: {
+          coaching_center_id: Number(coachingId),
+          status: SUBSCRIPTION_STATUS.INACTIVE,
+          provider: 'revenuecat',
+          revenuecat_app_user_id: appUserId,
+          entitlement_id: 'Shixa Pro'
+        }
+      });
 
   await audit({
     userId: Number(userId),
-    action: 'CREATE_SUBSCRIPTION_CHECKOUT',
+    action: 'CREATE_SUBSCRIPTION_SESSION',
     entityType: 'COACHING_SUBSCRIPTION',
     entityId: subRecord.id,
-    metadata: { coachingId: Number(coachingId), subscriptionId: subscription.id }
+    metadata: {
+      coachingId: Number(coachingId),
+      provider: 'revenuecat',
+      appUserId
+    }
   });
 
   return {
-    keyId: process.env.RAZORPAY_KEY_ID,
-    subscriptionId: subscription.id,
-    checkout: {
-      name: owner.coaching_center?.name || 'Shixa',
-      description: 'Shixa Monthly Subscription',
-      prefill: {
-        name: owner.name,
-        email: owner.email,
-        contact: owner.phone || undefined
-      },
-      notes: {
-        coachingId: String(coachingId),
-        ownerId: String(userId)
-      },
-      theme: {
-        color: '#0D1B6E'
-      }
+    provider: 'revenuecat',
+    appUserId,
+    entitlementId: 'Shixa Pro',
+    products: ['yearly', 'six_month', 'monthly'],
+    instructions: {
+      message: 'Complete purchase in app using RevenueCat paywall.',
+      ownerEmail: owner.email,
+      coachingName: owner.coaching_center?.name || 'Shixa'
     },
     subscription: normalizeSubscription(subRecord, owner)
   };
@@ -178,50 +162,24 @@ const getMySubscription = async ({ userId, coachingId }) => {
   return normalizeSubscription(subRecord, owner);
 };
 
-const cancelSubscription = async ({ userId, coachingId, cancelAtCycleEnd = true }) => {
-  const owner = await ensureOwnerContext({ userId, coachingId });
-
-  const subscriptionId = owner.subscription_id;
-  if (!subscriptionId) {
-    throw new Error('No active subscription found to cancel');
-  }
-
-  const razorpay = getRazorpayClient();
-  const cancelled = await razorpay.subscriptions.cancel(subscriptionId, {
-    cancel_at_cycle_end: Boolean(cancelAtCycleEnd)
-  });
-
-  await prisma.coachingSubscription.updateMany({
-    where: { razorpay_subscription_id: subscriptionId },
-    data: {
-      status: cancelled.status,
-      cancel_at: fromUnixTs(cancelled.charge_at),
-      cancelled_at: cancelled.status === 'cancelled' ? new Date() : null,
-      metadata: cancelled
-    }
-  });
-
-  await prisma.user.updateMany({
-    where: { coaching_center_id: Number(coachingId) },
-    data: {
-      subscription_status:
-        cancelled.status === 'cancelled'
-          ? SUBSCRIPTION_STATUS.CANCELLED
-          : SUBSCRIPTION_STATUS.ACTIVE
-    }
-  });
+const cancelSubscription = async ({ userId, coachingId }) => {
+  await ensureOwnerContext({ userId, coachingId });
 
   await audit({
     userId: Number(userId),
-    action: 'CANCEL_SUBSCRIPTION',
+    action: 'CANCEL_SUBSCRIPTION_REQUEST',
     entityType: 'COACHING_SUBSCRIPTION',
     entityId: Number(coachingId),
-    metadata: { subscriptionId, cancelAtCycleEnd: Boolean(cancelAtCycleEnd) }
+    metadata: {
+      provider: 'revenuecat',
+      mode: 'managed_by_store'
+    }
   });
 
   return {
-    subscriptionId,
-    status: cancelled.status
+    provider: 'revenuecat',
+    status: 'managed_by_store',
+    message: 'Cancel or manage subscription from RevenueCat Customer Center / app store subscription settings.'
   };
 };
 
@@ -231,35 +189,25 @@ const computeGraceEnd = () => {
   return date;
 };
 
-const resolveSubscriptionEntity = (eventBody) => {
-  const payload = eventBody?.payload || {};
-  return (
-    payload.subscription?.entity ||
-    payload.payment?.entity?.subscription ||
-    payload.invoice?.entity?.subscription ||
-    null
-  );
-};
+const verifyRevenueCatWebhookAuth = ({ rawBody, authorizationHeader, signatureHeader }) => {
+  const secret = getRequiredEnv('REVENUECAT_WEBHOOK_SECRET');
+  const authValue = (authorizationHeader || '').trim();
 
-const extractSubscriptionId = (eventBody) => {
-  const fromEntity = resolveSubscriptionEntity(eventBody);
-  if (fromEntity?.id) return fromEntity.id;
+  const authAccepted =
+    authValue === secret ||
+    authValue === `Bearer ${secret}` ||
+    authValue === `bearer ${secret}`;
 
-  const paymentEntity = eventBody?.payload?.payment?.entity;
-  if (paymentEntity?.subscription_id) return paymentEntity.subscription_id;
+  let signatureAccepted = false;
+  if (signatureHeader) {
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
+    signatureAccepted = expected === signatureHeader;
+  }
 
-  return null;
-};
-
-const verifyWebhookSignature = (rawBody, signature) => {
-  const secret = getRequiredEnv('RAZORPAY_WEBHOOK_SECRET');
-
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(rawBody)
-    .digest('hex');
-
-  return expected === signature;
+  return authAccepted || signatureAccepted;
 };
 
 const sendSubscriptionStatusNotification = async (coachingId, newStatus) => {
@@ -300,141 +248,241 @@ const sendSubscriptionStatusNotification = async (coachingId, newStatus) => {
 };
 
 
-const updateCenterStateByEvent = async ({ event, subRecord, subscriptionEntity }) => {
-  const coachingId = subRecord.coaching_center_id;
-  const currentEnd = fromUnixTs(subscriptionEntity?.current_end || subscriptionEntity?.end_at);
-  const currentStart = fromUnixTs(subscriptionEntity?.current_start || subscriptionEntity?.start_at);
+const mapRevenueCatEventToStatus = (eventType) => {
+  if (REVENUECAT_WEBHOOK_EVENTS.ACTIVE.includes(eventType)) {
+    return SUBSCRIPTION_STATUS.ACTIVE;
+  }
 
-  const baseSubUpdate = {
-    status: subscriptionEntity?.status || subRecord.status,
-    razorpay_plan_id: subscriptionEntity?.plan_id || subRecord.razorpay_plan_id,
-    current_start: currentStart,
-    current_end: currentEnd,
-    metadata: subscriptionEntity || subRecord.metadata
+  if (REVENUECAT_WEBHOOK_EVENTS.PAST_DUE.includes(eventType)) {
+    return SUBSCRIPTION_STATUS.PAST_DUE;
+  }
+
+  if (REVENUECAT_WEBHOOK_EVENTS.CANCELLED.includes(eventType)) {
+    return SUBSCRIPTION_STATUS.CANCELLED;
+  }
+
+  return null;
+};
+
+const normalizeRevenueCatEvent = (rawBody) => {
+  const parsed = JSON.parse(rawBody.toString('utf8'));
+  const event = parsed?.event || parsed;
+  const entitlementIds =
+    event?.entitlement_ids ||
+    (event?.entitlement_id ? [event.entitlement_id] : []);
+
+  const expiresAt =
+    fromMsTs(event?.expiration_at_ms) ||
+    (event?.expiration_at ? new Date(event.expiration_at) : null);
+
+  const eventAt =
+    fromMsTs(event?.event_timestamp_ms) ||
+    new Date();
+
+  const eventId =
+    event?.id ||
+    event?.event_id ||
+    `${event?.type || 'unknown'}:${event?.original_transaction_id || event?.transaction_id || 'na'}:${eventAt.getTime()}`;
+
+  return {
+    eventId,
+    eventType: (event?.type || '').toString(),
+    appUserId: (event?.app_user_id || '').toString(),
+    entitlementIds,
+    productId: event?.product_id || null,
+    originalTransactionId:
+      event?.original_transaction_id || event?.transaction_id || null,
+    expiresAt,
+    eventAt,
+    rawPayload: parsed
   };
+};
+
+const getEntitlementStatus = async ({ userId, coachingId }) => {
+  const owner = await ensureOwnerContext({ userId, coachingId });
+
+  const subRecord = await prisma.coachingSubscription.findFirst({
+    where: { coaching_center_id: Number(coachingId) },
+    orderBy: [{ last_event_at: 'desc' }, { id: 'desc' }]
+  });
+
+  return {
+    ...normalizeSubscription(subRecord, owner),
+    lastEventType: subRecord?.last_event_type || null,
+    lastEventAt: subRecord?.last_event_at || null,
+    expiresAt: subRecord?.expires_at || owner.current_period_end
+  };
+};
+
+const updateCenterStateByRevenueCatEvent = async ({ eventType, subRecord, eventPayload }) => {
+  const coachingId = subRecord.coaching_center_id;
+  const mappedStatus = mapRevenueCatEventToStatus(eventType);
+
+  if (!mappedStatus) {
+    return;
+  }
+
+  const isPastDue = mappedStatus === SUBSCRIPTION_STATUS.PAST_DUE;
+  const isCancelled = mappedStatus === SUBSCRIPTION_STATUS.CANCELLED;
+  const graceEnd = isPastDue ? computeGraceEnd() : null;
 
   await prisma.$transaction(async (tx) => {
-    if (event === WEBHOOK_EVENTS.PAYMENT_FAILED) {
-      await tx.coachingSubscription.update({
-        where: { id: subRecord.id },
-        data: {
-          ...baseSubUpdate,
-          payment_fail_count: { increment: 1 },
-          grace_end: computeGraceEnd()
-        }
-      });
-
-      await setCenterSubscriptionState(tx, coachingId, {
-        subscription_status: SUBSCRIPTION_STATUS.PAST_DUE,
-        current_period_end: currentEnd,
-        grace_period_end: computeGraceEnd()
-      });
-
-      // Send notification async (non-blocking)
-      sendSubscriptionStatusNotification(coachingId, SUBSCRIPTION_STATUS.PAST_DUE).catch(() => {});
-      return;
-    }
-
-    if (
-      event === WEBHOOK_EVENTS.SUBSCRIPTION_CANCELLED ||
-      event === WEBHOOK_EVENTS.SUBSCRIPTION_COMPLETED ||
-      event === WEBHOOK_EVENTS.SUBSCRIPTION_PAUSED
-    ) {
-      await tx.coachingSubscription.update({
-        where: { id: subRecord.id },
-        data: {
-          ...baseSubUpdate,
-          cancelled_at: new Date()
-        }
-      });
-
-      await setCenterSubscriptionState(tx, coachingId, {
-        subscription_status: SUBSCRIPTION_STATUS.CANCELLED,
-        current_period_end: currentEnd,
-        grace_period_end: null
-      });
-
-      // Send notification async (non-blocking)
-      sendSubscriptionStatusNotification(coachingId, SUBSCRIPTION_STATUS.CANCELLED).catch(() => {});
-      return;
-    }
-
     await tx.coachingSubscription.update({
       where: { id: subRecord.id },
       data: {
-        ...baseSubUpdate,
-        payment_fail_count: 0,
-        grace_end: null,
-        cancelled_at: null
+        status: mappedStatus,
+        provider: 'revenuecat',
+        entitlement_id: eventPayload.entitlementIds[0] || subRecord.entitlement_id,
+        product_id: eventPayload.productId || subRecord.product_id,
+        original_transaction_id:
+          eventPayload.originalTransactionId || subRecord.original_transaction_id,
+        revenuecat_app_user_id: eventPayload.appUserId || subRecord.revenuecat_app_user_id,
+        expires_at: eventPayload.expiresAt,
+        current_end: eventPayload.expiresAt,
+        payment_fail_count: isPastDue ? { increment: 1 } : 0,
+        grace_end: graceEnd,
+        cancelled_at: isCancelled ? new Date() : null,
+        last_event_type: eventPayload.eventType,
+        last_event_at: eventPayload.eventAt,
+        metadata: eventPayload.rawPayload
       }
     });
 
     await setCenterSubscriptionState(tx, coachingId, {
-      subscription_status: SUBSCRIPTION_STATUS.ACTIVE,
-      current_period_end: currentEnd,
-      grace_period_end: null
+      subscription_status: mappedStatus,
+      subscription_id:
+        eventPayload.originalTransactionId ||
+        eventPayload.appUserId ||
+        null,
+      current_period_end: eventPayload.expiresAt,
+      grace_period_end: graceEnd,
+      trial_active: false,
+      trial_end: null,
+      plan_type: eventPayload.entitlementIds.includes('Shixa Pro') ? 'pro' : 'basic'
     });
 
-    // Send notification async (non-blocking)
-    sendSubscriptionStatusNotification(coachingId, SUBSCRIPTION_STATUS.ACTIVE).catch(() => {});
-  });
-};
-
-const processWebhook = async ({ rawBody, signature }) => {
-  if (!verifyWebhookSignature(rawBody, signature)) {
-    throw new Error('Invalid webhook signature');
-  }
-
-  const eventBody = JSON.parse(rawBody.toString('utf8'));
-  const event = eventBody?.event;
-
-  if (!event) {
-    throw new Error('Webhook event is missing');
-  }
-
-  const validEvents = Object.values(WEBHOOK_EVENTS);
-  if (!validEvents.includes(event)) {
-    return { processed: false, reason: 'unsupported_event', event };
-  }
-
-  const subscriptionId = extractSubscriptionId(eventBody);
-  if (!subscriptionId) {
-    return { processed: false, reason: 'subscription_id_missing', event };
-  }
-
-  const subscriptionEntity = resolveSubscriptionEntity(eventBody);
-
-  let subRecord = await prisma.coachingSubscription.findFirst({
-    where: { razorpay_subscription_id: subscriptionId },
-    orderBy: { id: 'desc' }
-  });
-
-  if (!subRecord && subscriptionEntity?.notes?.coachingId) {
-    subRecord = await prisma.coachingSubscription.create({
+    await tx.subscriptionEvent.create({
       data: {
-        coaching_center_id: Number(subscriptionEntity.notes.coachingId),
-        status: subscriptionEntity.status,
-        razorpay_subscription_id: subscriptionId,
-        razorpay_plan_id: subscriptionEntity.plan_id || null,
-        current_start: fromUnixTs(subscriptionEntity.current_start),
-        current_end: fromUnixTs(subscriptionEntity.current_end),
-        metadata: subscriptionEntity
+        coaching_center_id: Number(coachingId),
+        provider: 'revenuecat',
+        provider_event_id: eventPayload.eventId,
+        event_type: eventPayload.eventType,
+        payload: eventPayload.rawPayload,
+        processed_at: eventPayload.eventAt
       }
     });
+  });
+
+  sendSubscriptionStatusNotification(coachingId, mappedStatus).catch(() => {});
+};
+
+const processRevenueCatWebhook = async ({ rawBody, authorization, signature }) => {
+  if (
+    !verifyRevenueCatWebhookAuth({
+      rawBody,
+      authorizationHeader: authorization,
+      signatureHeader: signature
+    })
+  ) {
+    throw new Error('Invalid RevenueCat webhook authorization/signature');
   }
 
-  if (!subRecord) {
-    return { processed: false, reason: 'subscription_not_mapped', event, subscriptionId };
+  const eventPayload = normalizeRevenueCatEvent(rawBody);
+
+  if (!eventPayload.eventType) {
+    throw new Error('RevenueCat event type missing');
   }
 
-  await updateCenterStateByEvent({ event, subRecord, subscriptionEntity });
+  if (!eventPayload.appUserId) {
+    return { processed: false, reason: 'app_user_id_missing' };
+  }
 
-  return { processed: true, event, subscriptionId };
+  const mapped = parseAppUserId(eventPayload.appUserId);
+  if (!mapped) {
+    return { processed: false, reason: 'invalid_app_user_id_format', appUserId: eventPayload.appUserId };
+  }
+
+  const existingEvent = await prisma.subscriptionEvent.findUnique({
+    where: { provider_event_id: eventPayload.eventId }
+  });
+
+  if (existingEvent) {
+    return {
+      processed: true,
+      duplicate: true,
+      eventType: eventPayload.eventType,
+      eventId: eventPayload.eventId
+    };
+  }
+
+  const subRecord =
+    await prisma.coachingSubscription.findFirst({
+      where: { coaching_center_id: Number(mapped.coachingId) },
+      orderBy: { id: 'desc' }
+    }) ||
+    await prisma.coachingSubscription.create({
+      data: {
+        coaching_center_id: Number(mapped.coachingId),
+        status: SUBSCRIPTION_STATUS.INACTIVE,
+        provider: 'revenuecat',
+        revenuecat_app_user_id: eventPayload.appUserId,
+        entitlement_id: 'Shixa Pro'
+      }
+    });
+
+  const mappedStatus = mapRevenueCatEventToStatus(eventPayload.eventType);
+  if (!mappedStatus) {
+    await prisma.subscriptionEvent.create({
+      data: {
+        coaching_center_id: Number(mapped.coachingId),
+        provider: 'revenuecat',
+        provider_event_id: eventPayload.eventId,
+        event_type: eventPayload.eventType,
+        payload: eventPayload.rawPayload,
+        processed_at: eventPayload.eventAt
+      }
+    });
+
+    return {
+      processed: false,
+      eventType: eventPayload.eventType,
+      eventId: eventPayload.eventId,
+      appUserId: eventPayload.appUserId,
+      reason: 'unsupported_event'
+    };
+  }
+
+  await updateCenterStateByRevenueCatEvent({
+    eventType: eventPayload.eventType,
+    subRecord,
+    eventPayload
+  });
+
+  await audit({
+    userId: Number(mapped.userId),
+    action: 'REVENUECAT_WEBHOOK_PROCESSED',
+    entityType: 'COACHING_SUBSCRIPTION',
+    entityId: Number(mapped.coachingId),
+    metadata: {
+      eventId: eventPayload.eventId,
+      eventType: eventPayload.eventType,
+      appUserId: eventPayload.appUserId
+    }
+  });
+
+  return {
+    processed: true,
+    eventType: eventPayload.eventType,
+    eventId: eventPayload.eventId,
+    appUserId: eventPayload.appUserId,
+    isSupported: true
+  };
 };
 
 module.exports = {
   createSubscription,
   getMySubscription,
   cancelSubscription,
-  processWebhook
+  getEntitlementStatus,
+  processRevenueCatWebhook
 };

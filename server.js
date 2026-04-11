@@ -35,7 +35,7 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// Razorpay webhook requires raw body for signature verification.
+// Payment webhooks require raw body for signature verification.
 app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '1mb' }));
 
 // Payload size limit (especially for exams/assignments)
