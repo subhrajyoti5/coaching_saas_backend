@@ -471,15 +471,17 @@ model NoticeTarget {
 }
 
 model Document {
-  id            Int       @id @default(autoincrement())
-  title         String?
-  drive_file_id String?
-  batch_id      Int?
-  subject_id    Int?
-  lecture_id    Int?
-  test_id       Int?
-  uploaded_by   Int?
-  uploaded_at   DateTime? @default(now()) @db.Timestamp(6)
+  id                Int       @id @default(autoincrement())
+  title             String?
+  storage_provider   String?   @default("r2")
+  storage_object_key String?
+  file_url          String?
+  batch_id          Int?
+  subject_id        Int?
+  lecture_id        Int?
+  test_id           Int?
+  uploaded_by       Int?
+  uploaded_at       DateTime? @default(now()) @db.Timestamp(6)
 
   batch    Batch?   @relation(fields: [batch_id], references: [id])
   subject  Subject? @relation(fields: [subject_id], references: [id])

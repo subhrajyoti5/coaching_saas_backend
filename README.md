@@ -9,7 +9,7 @@ This is the backend for a multi-tenant coaching & school management system built
 - **Academic Management**: Batch management, tests, and results
 - **Fee Tracking**: Comprehensive fee management system
 - **Notice Management**: Communication system for coaching centers
-- **Google Drive Integration**: File storage for notes (to be implemented)
+- **Cloudflare R2 Storage**: File storage for notes and documents
 - **JWT Authentication**: Secure authentication with role-based access control
 
 ## Tech Stack
@@ -18,7 +18,7 @@ This is the backend for a multi-tenant coaching & school management system built
 - **Database**: PostgreSQL
 - **ORM**: Prisma
 - **Authentication**: JWT
-- **File Storage**: Google Drive API (planned)
+- **File Storage**: Cloudflare R2 object storage
 
 ## Installation
 
@@ -36,9 +36,11 @@ npm install
 DATABASE_URL="postgresql://username:password@localhost:5432/coaching_management"
 JWT_SECRET="your-super-secret-jwt-key"
 JWT_EXPIRES_IN="7d"
-GOOGLE_DRIVE_CLIENT_ID="your-google-drive-client-id"
-GOOGLE_DRIVE_CLIENT_SECRET="your-google-drive-client-secret"
-GOOGLE_DRIVE_REDIRECT_URI="http://localhost:3000/auth/google/callback"
+R2_ENDPOINT="https://<account-id>.r2.cloudflarestorage.com"
+R2_ACCESS_KEY="your-r2-access-key"
+R2_SECRET_KEY="your-r2-secret-key"
+R2_BUCKET="your-r2-bucket"
+R2_PUBLIC_URL="https://your-public-r2-domain"
 PORT=8000
 NODE_ENV=development
 ```
@@ -155,9 +157,11 @@ The database schema includes the following main entities:
 - `DATABASE_URL`: PostgreSQL database connection string
 - `JWT_SECRET`: Secret key for JWT token generation
 - `JWT_EXPIRES_IN`: JWT token expiration time
-- `GOOGLE_DRIVE_CLIENT_ID`: Google Drive API client ID
-- `GOOGLE_DRIVE_CLIENT_SECRET`: Google Drive API client secret
-- `GOOGLE_DRIVE_REDIRECT_URI`: Google Drive API redirect URI
+- `R2_ENDPOINT`: Cloudflare R2 S3-compatible endpoint
+- `R2_ACCESS_KEY`: Cloudflare R2 access key
+- `R2_SECRET_KEY`: Cloudflare R2 secret key
+- `R2_BUCKET`: Cloudflare R2 bucket name
+- `R2_PUBLIC_URL`: Public base URL for stored documents
 - `PORT`: Port number for the server
 - `NODE_ENV`: Environment mode (development/production)
 
