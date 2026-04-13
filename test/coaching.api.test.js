@@ -18,29 +18,25 @@ describe('Coaching API Tests', () => {
     const ownerUser = await prisma.user.create({
       data: {
         email: 'owner@test.local',
-        firstName: 'Test',
-        lastName: 'Owner',
-        password: 'hashed',
-        isActive: true
+        name: 'Test Owner',
+        role: ROLES.OWNER,
+        is_active: true
       }
     });
     testOwnerId = ownerUser.id;
 
-    const coaching = await prisma.coachingCentre.create({
+    const coaching = await prisma.coachingCenter.create({
       data: {
         name: 'Test Coaching',
-        ownerId: testOwnerId
+        owner_user_id: testOwnerId
       }
     });
     testCoachingId = coaching.id;
 
-    await prisma.coachingUser.create({
-      data: {
-        userId: testOwnerId,
-        coachingId: testCoachingId,
-        role: ROLES.OWNER,
-        assignedBy: testOwnerId
-      }
+    // Link owner to coaching center
+    await prisma.user.update({
+      where: { id: testOwnerId },
+      data: { coaching_center_id: testCoachingId }
     });
 
     // Generate mock JWT token (in real tests, use your auth mechanism)
@@ -48,8 +44,7 @@ describe('Coaching API Tests', () => {
   });
 
   afterAll(async () => {
-    await prisma.coachingUser.deleteMany({});
-    await prisma.coachingCentre.deleteMany({});
+    await prisma.coachingCenter.deleteMany({});
     await prisma.user.deleteMany({});
   });
 
@@ -141,11 +136,11 @@ describe('Coaching API Tests', () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
 
-      // Verify student is removed
-      const stillExists = await prisma.coachingUser.findFirst({
-        where: { userId: testStudentId, coachingId: testCoachingId }
+      // Verify student is removed from coaching
+      const studentAfterDelete = await prisma.user.findUnique({
+        where: { id: testStudentId }
       });
-      expect(stillExists).toBeNull();
+      expect(studentAfterDelete.coaching_center_id).toBeNull();
     });
 
     it('should reject deletion of non-existent student', async () => {
