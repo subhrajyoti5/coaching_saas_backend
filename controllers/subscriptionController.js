@@ -77,6 +77,22 @@ const getEntitlementStatus = async (req, res) => {
   }
 };
 
+const getRevenueCatConfig = async (_req, res) => {
+  const apiKey = process.env.REVENUECAT_API_KEY;
+
+  if (!apiKey) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'RevenueCat configuration missing',
+      message: 'REVENUECAT_API_KEY is not configured'
+    });
+  }
+
+  return res.status(HTTP_STATUS.SUCCESS).json({
+    message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+    revenueCatApiKey: apiKey
+  });
+};
+
 const revenuecatWebhook = async (req, res) => {
   try {
     const signature = req.headers['x-revenuecat-signature'];
@@ -105,5 +121,6 @@ module.exports = {
   getMySubscription,
   cancelSubscription,
   getEntitlementStatus,
+  getRevenueCatConfig,
   revenuecatWebhook
 };
