@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const {
-    login, googleLogin, selectCoaching, refresh, logout, getProfile, getCoachingCenters
+    login, googleLogin, selectCoaching, refresh, logout, getProfile, getCoachingCenters, getGoogleConfig
 } = require('../controllers/authController');
 const { validateUserLogin } = require('../middleware/validation');
 const { authenticateToken } = require('../middleware/auth');
@@ -17,6 +17,7 @@ const loginLimiter = rateLimit({
 
 // NO PUBLIC REGISTER ROUTE
 // Public routes
+router.get('/config/google', getGoogleConfig);
 router.post('/google-login', loginLimiter, googleLogin);
 router.post('/refresh', refresh);
 router.post('/logout', logout);
