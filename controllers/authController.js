@@ -116,11 +116,36 @@ const getCoachingCenters = async (req, res) => {
   }
 };
 
+/**
+ * GET GOOGLE CLIENT CONFIG
+ * Public endpoint to fetch Google OAuth client ID (no sensitive data exposed)
+ */
+const getGoogleConfig = async (req, res) => {
+  try {
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    if (!clientId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Google OAuth not configured',
+        message: 'GOOGLE_OAUTH_CLIENT_ID is not set on the server'
+      });
+    }
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      googleClientId: clientId
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to fetch Google config',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   googleLogin,
   selectCoaching,
   refresh,
   logout,
   getProfile,
-  getCoachingCenters
+  getCoachingCenters,
+  getGoogleConfig
 };
