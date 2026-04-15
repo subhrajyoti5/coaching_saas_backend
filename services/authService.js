@@ -60,7 +60,19 @@ const finalizeLogin = async (user) => {
 };
 
 const { OAuth2Client } = require('google-auth-library');
-const googleClient = new OAuth2Client(process.env.GOOGLE_OAUTH_CLIENT_ID);
+const googleClient = new OAuth2Client();
+
+const getAllowedGoogleAudiences = () => {
+  const fromList = String(process.env.GOOGLE_OAUTH_CLIENT_IDS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const single = String(process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
+  if (single) fromList.push(single);
+
+  return Array.from(new Set(fromList));
+};
 
 /**
  * SIGN IN WITH GOOGLE
@@ -71,11 +83,13 @@ const loginWithGoogle = async (token) => {
 
   let user;
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      // Don't enforce strict audience check - just verify the signature is valid
-      // The idToken may be issued for either the Android client ID or Web client ID
-    });
+    const allowedAudiences = getAllowedGoogleAudiences();
+    const verifyOptions = { idToken: token };
+    if (allowedAudiences.length > 0) {
+      verifyOptions.audience = allowedAudiences;
+    }
+
+    const ticket = await googleClient.verifyIdToken(verifyOptions);
 
     const payload = ticket.getPayload();
     
@@ -84,14 +98,15 @@ const loginWithGoogle = async (token) => {
       throw new Error('Invalid token issuer');
     }
 
+    if (allowedAudiences.length > 0 && !allowedAudiences.includes(payload.aud)) {
+      throw new Error('Token audience is not allowed for this application');
+    }
+
     // Log token info for debugging
     console.log('✅ [Google Auth] Token verified successfully');
     console.log('📧 [Google Auth] Email:', payload.email);
     console.log('🆔 [Google Auth] Token audience (aud):', payload.aud);
-    console.log('🔑 [Google Auth] Expected Web Client ID:', process.env.GOOGLE_OAUTH_CLIENT_ID);
-    
-    // Note: The audience mismatch above is expected if frontend uses a different OAuth app
-    // As long as the signature is valid, the token is legitimate
+    console.log('🔑 [Google Auth] Allowed client IDs:', allowedAudiences.length > 0 ? allowedAudiences.join(', ') : '(not configured)');
 
     const googleEmail = payload.email;
 
