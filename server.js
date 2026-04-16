@@ -57,6 +57,8 @@ app.use('/api/documents', require('./routes/documentRoutes'));
 app.use('/api/subscriptions', require('./routes/subscriptionRoutes'));
 app.use('/api/webhooks', require('./routes/webhookRoutes'));
 app.use('/api/device-tokens', require('./routes/deviceTokenRoutes'));
+// AI Test Studio Premium Feature Routes
+app.use('/api/coaching/:coachingId/ai-tests', require('./routes/aiTestStudioRoutes'));
 
 // Health check endpoint
 app.get('/', (req, res) => {

@@ -25,6 +25,10 @@ model CoachingCenter {
   notices             Notice[]
   access_codes        AccessCode[]
   join_requests       JoinRequest[]
+  syllabuses          Syllabus[]
+  ai_generations      AiGeneration[]
+  questions           Question[]
+  test_attempts       TestAttempt[]
 
   @@map("coaching_centers")
 }
@@ -124,6 +128,9 @@ model User {
   created_notices   Notice[]        @relation("NoticeCreatedBy")
   documents         Document[]      @relation("DocumentUploadedBy")
   device_tokens     DeviceToken[]
+  uploaded_syllabuses Syllabus[]    @relation("SyllabusUploadedBy")
+  created_questions Question[]      @relation("QuestionCreatedBy")
+  ai_generations    AiGeneration[]  @relation("AiGenerationTeacher")
 
   @@unique([email, coaching_center_id], map: "uniq_users_email_center")
   @@index([coaching_center_id], map: "idx_users_center")
@@ -203,6 +210,7 @@ model Batch {
   payment_claims  PaymentClaim[]
   notice_targets  NoticeTarget[]
   documents       Document[]
+  syllabuses      Syllabus[] @relation("SyllabusBatch")
 
   @@index([coaching_center_id], map: "idx_batches_center")
   @@map("batches")
@@ -217,8 +225,10 @@ model Subject {
   batch_subjects  BatchSubject[]
   schedules       BatchSchedule[]
   lectures        Lecture[]
-  tests           Test[]
+  tests           Test[] @relation("TestSubject")
   documents       Document[]
+  syllabuses      Syllabus[] @relation("SyllabusSubject")
+  questions       Question[] @relation("QuestionSubject")
 
   @@index([coaching_center_id], map: "idx_subjects_center")
   @@map("subjects")
@@ -299,89 +309,251 @@ model Attendance {
   @@map("attendance")
 }
 
-model Test {
+// ============ SYLLABUS & AI GENERATION ============
+model Syllabus {
   id                 Int       @id @default(autoincrement())
-  title              String?
+  coaching_center_id Int
+  batch_id           Int?
   subject_id         Int?
-  coaching_center_id Int?
-  duration_minutes   Int?
-  start_time         DateTime? @db.Timestamp(6)
-  end_time           DateTime? @db.Timestamp(6)
-  created_by         Int?
-  results_published  Boolean?  @default(false)
-  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  uploaded_by        Int
+  name               String?
+  version            Int       @default(1)
+  storage_urls       String[]  @db.Json
+  extracted_text     String?   @db.Text
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
 
-  subject         Subject?        @relation(fields: [subject_id], references: [id])
-  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id])
-  creator         User?           @relation("TestCreatedBy", fields: [created_by], references: [id])
-  test_batches    TestBatch[]
-  questions       Question[]
-  attempts        TestAttempt[]
-  documents       Document[]
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  uploader        User           @relation("SyllabusUploadedBy", fields: [uploaded_by], references: [id])
+  batch           Batch?         @relation("SyllabusBatch", fields: [batch_id], references: [id])
+  subject         Subject?       @relation("SyllabusSubject", fields: [subject_id], references: [id])
+  questions       Question[]     @relation("QuestionsFromSyllabus")
+  ai_generations  AiGeneration[]
 
-  @@index([subject_id], map: "idx_tests_subject")
-  @@map("tests")
+  @@index([coaching_center_id], map: "idx_syllabus_center")
+  @@index([uploaded_by], map: "idx_syllabus_uploader")
+  @@map("syllabuses")
 }
 
-model TestBatch {
-  id       Int  @id @default(autoincrement())
-  test_id  Int?
-  batch_id Int?
+model AiGeneration {
+  id                 Int       @id @default(autoincrement())
+  coaching_center_id Int
+  teacher_id         Int
+  syllabus_id        Int
+  num_questions      Int
+  difficulty_dist    Json
+  marks_per_q        Int
+  negative_marking   Float?
+  status             String    @default("PENDING")
+  attempt_count      Int       @default(0)
+  max_attempts       Int       @default(3)
+  last_attempt_at    DateTime? @db.Timestamp(6)
+  error_message      String?
+  raw_ai_response    String?   @db.Text
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  completed_at       DateTime? @db.Timestamp(6)
 
-  test  Test?  @relation(fields: [test_id], references: [id], onDelete: Cascade)
-  batch Batch? @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  teacher         User           @relation("AiGenerationTeacher", fields: [teacher_id], references: [id])
+  syllabus        Syllabus       @relation(fields: [syllabus_id], references: [id], onDelete: Cascade)
+  questions       Question[]     @relation("QuestionsInGeneration")
 
-  @@map("test_batches")
+  @@index([coaching_center_id], map: "idx_ai_generation_center")
+  @@index([status], map: "idx_ai_generation_status")
+  @@index([teacher_id], map: "idx_ai_generation_teacher")
+  @@map("ai_generations")
 }
 
+// ============ QUESTION & OPTIONS ============
 model Question {
-  id             Int     @id @default(autoincrement())
-  test_id        Int?
-  question       String
-  option_a       String?
-  option_b       String?
-  option_c       String?
-  option_d       String?
-  correct_option String? @db.Char(1)
-  marks          Int?    @default(1)
+  id                   Int       @id @default(autoincrement())
+  coaching_center_id   Int
+  created_by           Int
+  subject_id           Int?
+  syllabus_id          Int?
+  ai_generation_id     Int?
+  question_text        String    @db.Text
+  difficulty_level     String    @default("MEDIUM")
+  marks                Int       @default(1)
+  negative_marks       Float     @default(0)
+  explanation          String?   @db.Text
+  source               String?   @default("MANUAL")
+  is_from_bank         Boolean   @default(false)
+  created_at           DateTime  @default(now()) @db.Timestamp(6)
+  updated_at           DateTime  @updatedAt @db.Timestamp(6)
 
-  test    Test?        @relation(fields: [test_id], references: [id], onDelete: Cascade)
-  answers TestAnswer[]
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  creator         User            @relation("QuestionCreatedBy", fields: [created_by], references: [id])
+  subject         Subject?        @relation("QuestionSubject", fields: [subject_id], references: [id])
+  syllabus        Syllabus?       @relation("QuestionsFromSyllabus", fields: [syllabus_id], references: [id])
+  ai_generation   AiGeneration?   @relation("QuestionsInGeneration", fields: [ai_generation_id], references: [id])
+  options         QuestionOption[]
+  test_questions  TestQuestion[]
+  attempts_answers TestAttemptAnswer[]
+  analytics       QuestionAnalytic?
 
+  @@index([coaching_center_id], map: "idx_question_center")
+  @@index([created_by], map: "idx_question_creator")
+  @@index([is_from_bank], map: "idx_question_bank")
   @@map("questions")
 }
 
+model QuestionOption {
+  id          Int     @id @default(autoincrement())
+  question_id Int
+  option_text String  @db.Text
+  order_index Int
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+
+  question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@unique([question_id, order_index], map: "uniq_question_option_order")
+  @@index([question_id], map: "idx_question_option_question")
+  @@map("question_options")
+}
+
+// ============ TEST & TEST QUESTIONS ============
+model Test {
+  id                 Int       @id @default(autoincrement())
+  coaching_center_id Int
+  batch_id           Int
+  subject_id         Int?
+  created_by         Int
+  title              String
+  description        String?
+  mode               String    @default("PRACTICE")
+  duration_minutes   Int?
+  shuffle_questions  Boolean   @default(false)
+  shuffle_options    Boolean   @default(false)
+  show_answers_after Boolean   @default(true)
+  published_at       DateTime? @db.Timestamp(6)
+  start_time         DateTime? @db.Timestamp(6)
+  end_time           DateTime? @db.Timestamp(6)
+  results_published  Boolean   @default(false)
+  is_archived        Boolean   @default(false)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  batch           Batch          @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  subject         Subject?       @relation("TestSubject", fields: [subject_id], references: [id])
+  creator         User           @relation("TestCreatedBy", fields: [created_by], references: [id])
+  test_questions  TestQuestion[]
+  test_batches    TestBatch[]
+  attempts        TestAttempt[]
+  documents       Document[]     @relation("DocumentForTest")
+  analytics       TestAnalytic?
+
+  @@index([coaching_center_id], map: "idx_test_center")
+  @@index([created_by], map: "idx_test_creator")
+  @@index([batch_id], map: "idx_test_batch")
+  @@index([published_at], map: "idx_test_published")
+  @@map("tests")
+}
+
+model TestQuestion {
+  id         Int @id @default(autoincrement())
+  test_id    Int
+  question_id Int
+  order_index Int
+
+  test     Test    @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [question_id], references: [id], onDelete: Restrict)
+
+  @@unique([test_id, order_index], map: "uniq_test_question_order")
+  @@index([question_id], map: "idx_test_question_question")
+  @@map("test_questions")
+}
+
+model TestBatch {
+  id       Int @id @default(autoincrement())
+  test_id  Int
+  batch_id Int
+
+  test  Test  @relation(fields: [test_id], references: [id], onDelete: Cascade)
+  batch Batch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+
+  @@unique([test_id, batch_id], map: "uniq_test_batch")
+  @@map("test_batches")
+}
+
+// ============ TEST ATTEMPTS & ANSWERS ============
 model TestAttempt {
-  id           Int       @id @default(autoincrement())
-  test_id      Int?
-  student_id   Int?
-  batch_id     Int?
-  score        Int?
-  submitted_at DateTime? @default(now()) @db.Timestamp(6)
+  id                 Int       @id @default(autoincrement())
+  test_id            Int
+  batch_id           Int
+  student_id         Int
+  coaching_center_id Int
+  started_at         DateTime  @default(now()) @db.Timestamp(6)
+  submitted_at       DateTime? @db.Timestamp(6)
+  time_taken_secs    Int?
+  total_marks        Int?
+  obtained_marks     Float?
+  percentage         Float?
+  status             String    @default("IN_PROGRESS")
+  submission_count   Int       @default(0)
+  max_submissions    Int       @default(1)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
 
-  test    Test?        @relation(fields: [test_id], references: [id], onDelete: Cascade)
-  student User?        @relation("TestAttemptStudent", fields: [student_id], references: [id])
-  batch   Batch?       @relation(fields: [batch_id], references: [id])
-  answers TestAnswer[]
+  test     Test    @relation(fields: [test_id], references: [id], onDelete: Restrict)
+  batch    Batch   @relation(fields: [batch_id], references: [id], onDelete: Restrict)
+  student  User    @relation("TestAttemptStudent", fields: [student_id], references: [id], onDelete: Restrict)
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Restrict)
+  answers  TestAttemptAnswer[]
 
-  @@unique([test_id, student_id])
-  @@index([test_id, score(sort: Desc)], map: "idx_test_score")
+  @@unique([test_id, student_id], map: "uniq_test_attempt_student")
+  @@index([coaching_center_id], map: "idx_test_attempt_center")
+  @@index([student_id], map: "idx_test_attempt_student")
+  @@index([submitted_at], map: "idx_test_attempt_submitted")
   @@map("test_attempts")
 }
 
-model TestAnswer {
-  id              Int      @id @default(autoincrement())
-  attempt_id      Int?
-  question_id     Int?
-  selected_option String?  @db.Char(1)
-  is_correct      Boolean?
-  marks_awarded   Int?
+model TestAttemptAnswer {
+  id                  Int    @id @default(autoincrement())
+  attempt_id          Int
+  question_id         Int
+  selected_option_ids Int[]  @db.Json
+  is_correct          Boolean?
+  marks_awarded       Float?
+  answered_at         DateTime @default(now()) @db.Timestamp(6)
 
-  attempt  TestAttempt? @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
-  question Question?    @relation(fields: [question_id], references: [id])
+  attempt   TestAttempt @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  question  Question    @relation(fields: [question_id], references: [id], onDelete: Restrict)
 
-  @@index([attempt_id], map: "idx_test_answers_attempt")
-  @@map("test_answers")
+  @@index([attempt_id], map: "idx_test_attempt_answer_attempt")
+  @@index([question_id], map: "idx_test_attempt_answer_question")
+  @@map("test_attempt_answers")
+}
+
+// ============ ANALYTICS ============
+model QuestionAnalytic {
+  id                  Int     @id @default(autoincrement())
+  question_id         Int     @unique
+  total_attempts      Int     @default(0)
+  correct_count       Int     @default(0)
+  incorrect_count     Int     @default(0)
+  accuracy_rate       Float?
+  avg_time_seconds    Int?
+  difficulty_rating   Float   @default(0.5)
+  last_updated_at     DateTime @updatedAt @db.Timestamp(6)
+
+  question Question @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@map("question_analytics")
+}
+
+model TestAnalytic {
+  id              Int     @id @default(autoincrement())
+  test_id         Int     @unique
+  total_attempts  Int     @default(0)
+  avg_score       Float?
+  median_score    Float?
+  pass_count      Int     @default(0)
+  last_updated_at DateTime @updatedAt @db.Timestamp(6)
+
+  test Test @relation(fields: [test_id], references: [id], onDelete: Cascade)
+
+  @@map("test_analytics")
 }
 
 model Fee {
@@ -486,7 +658,7 @@ model Document {
   batch    Batch?   @relation(fields: [batch_id], references: [id])
   subject  Subject? @relation(fields: [subject_id], references: [id])
   lecture  Lecture? @relation(fields: [lecture_id], references: [id])
-  test     Test?    @relation(fields: [test_id], references: [id])
+  test     Test?    @relation("DocumentForTest", fields: [test_id], references: [id])
   uploader User?    @relation("DocumentUploadedBy", fields: [uploaded_by], references: [id])
 
   @@map("documents")
