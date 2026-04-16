@@ -361,3 +361,191 @@ ADD COLUMN IF NOT EXISTS storage_object_key TEXT;
 
 ALTER TABLE documents
 ADD COLUMN IF NOT EXISTS file_url TEXT;
+
+-- ============================================================
+-- AI TEST STUDIO TABLES (NEW - NO DATA LOSS)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS syllabuses (
+    id SERIAL PRIMARY KEY,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    batch_id INTEGER REFERENCES batches(id),
+    subject_id INTEGER REFERENCES subjects(id),
+    uploaded_by INTEGER NOT NULL REFERENCES users(id),
+    name TEXT,
+    version INTEGER DEFAULT 1,
+    storage_urls JSONB,
+    extracted_text TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_syllabus_center ON syllabuses(coaching_center_id);
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploader ON syllabuses(uploaded_by);
+
+CREATE TABLE IF NOT EXISTS ai_generations (
+    id SERIAL PRIMARY KEY,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    syllabus_id INTEGER NOT NULL REFERENCES syllabuses(id) ON DELETE CASCADE,
+    num_questions INTEGER,
+    difficulty_dist JSONB,
+    marks_per_q INTEGER,
+    negative_marking FLOAT,
+    status TEXT DEFAULT 'PENDING',
+    attempt_count INTEGER DEFAULT 0,
+    max_attempts INTEGER DEFAULT 3,
+    last_attempt_at TIMESTAMP,
+    error_message TEXT,
+    raw_ai_response TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_gen_center ON ai_generations(coaching_center_id);
+CREATE INDEX IF NOT EXISTS idx_ai_gen_teacher ON ai_generations(teacher_id);
+
+CREATE TABLE IF NOT EXISTS question_options (
+    id SERIAL PRIMARY KEY,
+    question_id INTEGER NOT NULL,
+    option_index INTEGER NOT NULL,
+    option_text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Updated questions table for AI Test Studio
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE;
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS syllabus_id INTEGER REFERENCES syllabuses(id) ON DELETE SET NULL;
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS ai_generation_id INTEGER REFERENCES ai_generations(id) ON DELETE SET NULL;
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS subject_id INTEGER REFERENCES subjects(id);
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id);
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS is_from_bank BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS difficulty_rating TEXT DEFAULT 'MEDIUM';
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS explanation TEXT;
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS correct_option_ids INTEGER[] DEFAULT ARRAY[]::INTEGER[];
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+CREATE INDEX IF NOT EXISTS idx_questions_coaching ON questions(coaching_center_id);
+CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id);
+
+-- Updated tests table for AI Test Studio
+ALTER TABLE tests
+ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'PRACTICE';
+
+ALTER TABLE tests
+ADD COLUMN IF NOT EXISTS total_marks INTEGER DEFAULT 100;
+
+ALTER TABLE tests
+ADD COLUMN IF NOT EXISTS negative_marking FLOAT DEFAULT 0;
+
+ALTER TABLE tests
+ADD COLUMN IF NOT EXISTS show_answers BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE tests
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS test_questions (
+    id SERIAL PRIMARY KEY,
+    test_id INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    question_order INTEGER,
+    marks INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_questions_test ON test_questions(test_id);
+
+-- Updated test_batches if not exists
+CREATE TABLE IF NOT EXISTS test_batches (
+    id SERIAL PRIMARY KEY,
+    test_id INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+    batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_batches_test ON test_batches(test_id);
+CREATE INDEX IF NOT EXISTS idx_test_batches_batch ON test_batches(batch_id);
+
+-- Updated test_attempts for AI Test Studio
+ALTER TABLE test_attempts
+ADD COLUMN IF NOT EXISTS coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE;
+
+ALTER TABLE test_attempts
+ADD COLUMN IF NOT EXISTS time_taken_seconds INTEGER;
+
+ALTER TABLE test_attempts
+ADD COLUMN IF NOT EXISTS max_submissions INTEGER DEFAULT 1;
+
+ALTER TABLE test_attempts
+ADD COLUMN IF NOT EXISTS submission_count INTEGER DEFAULT 1;
+
+ALTER TABLE test_attempts
+ADD COLUMN IF NOT EXISTS results_published BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE test_attempts
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+CREATE INDEX IF NOT EXISTS idx_test_attempts_coaching ON test_attempts(coaching_center_id);
+
+-- Test attempt answers table
+CREATE TABLE IF NOT EXISTS test_attempt_answers (
+    id SERIAL PRIMARY KEY,
+    attempt_id INTEGER NOT NULL REFERENCES test_attempts(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id),
+    selected_option_ids INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+    correct_option_ids INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+    is_correct BOOLEAN,
+    marks_awarded FLOAT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_attempt_answers_attempt ON test_attempt_answers(attempt_id);
+
+-- Analytics tables
+CREATE TABLE IF NOT EXISTS question_analytics (
+    id SERIAL PRIMARY KEY,
+    question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    total_attempts INTEGER DEFAULT 0,
+    correct_count INTEGER DEFAULT 0,
+    incorrect_count INTEGER DEFAULT 0,
+    accuracy_rate FLOAT DEFAULT 0,
+    difficulty_rating TEXT DEFAULT 'MEDIUM',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_question_analytics_question ON question_analytics(question_id);
+CREATE INDEX IF NOT EXISTS idx_question_analytics_coaching ON question_analytics(coaching_center_id);
+
+CREATE TABLE IF NOT EXISTS test_analytics (
+    id SERIAL PRIMARY KEY,
+    test_id INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    total_attempts INTEGER DEFAULT 0,
+    passed_count INTEGER DEFAULT 0,
+    avg_score FLOAT DEFAULT 0,
+    pass_percentage FLOAT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_analytics_test ON test_analytics(test_id);
+CREATE INDEX IF NOT EXISTS idx_test_analytics_coaching ON test_analytics(coaching_center_id);
