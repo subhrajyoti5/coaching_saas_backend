@@ -2,4 +2,4 @@
 git pull
 npm install
 npx prisma generate
-pm2 restart coaching-backend
+pm2 restart coaching-backend --update-env
