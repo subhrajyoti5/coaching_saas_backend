@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+
 git pull
 npm install
 npx prisma generate
