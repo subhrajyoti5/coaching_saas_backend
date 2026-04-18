@@ -4,8 +4,10 @@
   "description": "Backend for coaching management system",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "npm run prisma:generate && node server.js",
     "dev": "nodemon server.js",
+    "prisma:generate": "prisma generate",
+    "postinstall": "prisma generate",
     "migrate": "npx prisma migrate dev",
     "seed": "node prisma/seed.js",
     "test": "jest --detectOpenHandles --forceExit"
