@@ -165,3 +165,4 @@ temp_fix.js
 imp.txt
 DEVELOPER_DRIVE_SETUP.md
 prisma/aws_migrate.sql
+.env.save
