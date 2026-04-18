@@ -445,9 +445,11 @@ const validatePreviewAccess = async ({ userId, coachingId, role, documentId }) =
 const getDocumentPreviewUrl = async ({ userId, coachingId, role, documentId }) => {
   await validatePreviewAccess({ userId, coachingId, role, documentId });
   const token = createPreviewUrlToken({ userId, coachingId, role, documentId });
-  const baseUrl = process.env.API_BASE_URL || '';
+  const baseUrl = (process.env.API_BASE_URL || '').trim();
+  // if i add /api in apibaseurl auth will break because preview endpoint is also under /api, so removing trailing /api if exists
+  const normalizedBaseUrl = baseUrl? baseUrl.replace(/\/+$/, '').replace(/\/api$/i, '') : '';
   const previewPath = `/api/documents/preview/${token}`;
-  return baseUrl ? `${baseUrl}${previewPath}` : previewPath;
+  return normalizedBaseUrl ? `${normalizedBaseUrl}${previewPath}` : previewPath;
 };
 
 const getPreviewDocumentByToken = async (token) => {
