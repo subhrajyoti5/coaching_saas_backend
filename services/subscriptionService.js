@@ -30,6 +30,65 @@ const mapUserSubscription = (user) => ({
   planType: user.plan_type || 'basic'
 });
 
+const normalizeStatus = (status) => String(status || SUBSCRIPTION_STATUS.INACTIVE).toLowerCase();
+
+const safeDate = (value) => {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const computeAccessState = ({
+  status,
+  currentPeriodEnd,
+  gracePeriodEnd,
+  planType,
+  now = new Date()
+}) => {
+  const normalizedStatus = normalizeStatus(status);
+  const periodEnd = safeDate(currentPeriodEnd);
+  const graceEnd = safeDate(gracePeriodEnd);
+
+  const isWithinCurrentPeriod = Boolean(periodEnd && now <= periodEnd);
+  const isWithinGracePeriod =
+    normalizedStatus === SUBSCRIPTION_STATUS.PAST_DUE &&
+    Boolean(graceEnd && now <= graceEnd);
+
+  const hasActiveAccess =
+    normalizedStatus === SUBSCRIPTION_STATUS.ACTIVE ||
+    isWithinGracePeriod ||
+    (normalizedStatus === SUBSCRIPTION_STATUS.CANCELLED && isWithinCurrentPeriod);
+
+  const daysRemaining = periodEnd
+    ? Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+    : null;
+
+  const featureEnabled = hasActiveAccess;
+
+  const warnings = [];
+  if (isWithinGracePeriod) {
+    warnings.push('Subscription is in grace period. Renew to avoid feature interruption.');
+  }
+
+  return {
+    status: normalizedStatus,
+    hasActiveAccess,
+    inGracePeriod: isWithinGracePeriod,
+    daysRemaining,
+    currentPeriodEnd: periodEnd,
+    gracePeriodEnd: graceEnd,
+    features: {
+      aiTestStudio: {
+        enabled: featureEnabled,
+        reason: featureEnabled
+          ? 'active_subscription'
+          : 'inactive_subscription'
+      }
+    },
+    warnings
+  };
+};
+
 const ensureOwnerContext = async ({ userId, coachingId }) => {
   if (!coachingId) throw new Error('Coaching context is missing from token');
 
@@ -306,11 +365,26 @@ const getEntitlementStatus = async ({ userId, coachingId }) => {
     orderBy: [{ last_event_at: 'desc' }, { id: 'desc' }]
   });
 
+  const normalized = normalizeSubscription(subRecord, owner);
+  const computed = computeAccessState({
+    status: normalized.status,
+    currentPeriodEnd: normalized.currentPeriodEnd,
+    gracePeriodEnd: normalized.gracePeriodEnd,
+    planType: normalized.planType
+  });
+
   return {
     ...normalizeSubscription(subRecord, owner),
     lastEventType: subRecord?.last_event_type || null,
     lastEventAt: subRecord?.last_event_at || null,
-    expiresAt: subRecord?.expires_at || owner.current_period_end
+    expiresAt: subRecord?.expires_at || owner.current_period_end,
+    hasActiveAccess: computed.hasActiveAccess,
+    inGracePeriod: computed.inGracePeriod,
+    daysRemaining: computed.daysRemaining,
+    features: computed.features,
+    warnings: computed.warnings,
+    syncedAt: new Date(),
+    syncedFrom: 'database'
   };
 };
 
@@ -484,5 +558,6 @@ module.exports = {
   getMySubscription,
   cancelSubscription,
   getEntitlementStatus,
+  computeAccessState,
   processRevenueCatWebhook
 };

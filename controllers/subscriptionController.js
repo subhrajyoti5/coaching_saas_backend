@@ -65,13 +65,74 @@ const getEntitlementStatus = async (req, res) => {
       coachingId: req.user.coachingId
     });
 
+    const featureName = String(
+      req.params.featureName || req.query.feature || ''
+    ).trim();
+
+    const featureAccess = featureName
+      ? status.features?.[featureName] || { enabled: false, reason: 'unknown_feature' }
+      : null;
+
     return res.status(HTTP_STATUS.SUCCESS).json({
       message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
-      status
+      status,
+      ...(featureName ? { feature: featureName, featureAccess } : {})
     });
   } catch (error) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
       error: 'Failed to fetch entitlement status',
+      message: error.message
+    });
+  }
+};
+
+const getFeatureAccess = async (req, res) => {
+  try {
+    const featureName = String(req.params.featureName || req.query.feature || '').trim() || 'aiTestStudio';
+    const user = req.userDetails;
+
+    if (!user) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        error: 'Unauthorized',
+        message: 'Authenticated user context is missing'
+      });
+    }
+
+    const status = subscriptionService.computeAccessState({
+      status: user.subscription_status,
+      currentPeriodEnd: user.current_period_end,
+      gracePeriodEnd: user.grace_period_end,
+      planType: user.plan_type
+    });
+
+    const featureAccess = status.features?.[featureName] || {
+      enabled: false,
+      reason: 'unknown_feature'
+    };
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+      feature: featureName,
+      subscription: {
+        trialActive: Boolean(user.trial_active),
+        trialEnd: user.trial_end,
+        subscriptionStatus: user.subscription_status,
+        subscriptionId: user.subscription_id,
+        currentPeriodEnd: user.current_period_end,
+        gracePeriodEnd: user.grace_period_end,
+        planType: user.plan_type,
+        hasActiveAccess: status.hasActiveAccess,
+        inGracePeriod: status.inGracePeriod,
+        daysRemaining: status.daysRemaining,
+        warnings: status.warnings,
+        syncedAt: new Date(),
+        syncedFrom: 'database'
+      },
+      featureAccess
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch feature access',
       message: error.message
     });
   }
@@ -121,6 +182,7 @@ module.exports = {
   getMySubscription,
   cancelSubscription,
   getEntitlementStatus,
+  getFeatureAccess,
   getRevenueCatConfig,
   revenuecatWebhook
 };
