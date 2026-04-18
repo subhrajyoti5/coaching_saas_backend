@@ -57,8 +57,25 @@ const resolveDocumentFileUrl = (doc = {}) => {
   return null;
 };
 
+const inferMimeTypeFromUrl = (fileUrl = '') => {
+  const lower = String(fileUrl || '').toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.bmp')) return 'image/bmp';
+  if (lower.endsWith('.heic')) return 'image/heic';
+  if (lower.endsWith('.heif')) return 'image/heif';
+  if (lower.endsWith('.doc') || lower.endsWith('.docx')) return 'application/msword';
+  if (lower.endsWith('.ppt') || lower.endsWith('.pptx')) return 'application/vnd.ms-powerpoint';
+  if (lower.endsWith('.xls') || lower.endsWith('.xlsx')) return 'application/vnd.ms-excel';
+  return null;
+};
+
 const mapDocumentForClient = (doc, extras = {}) => {
   const resolvedFileUrl = resolveDocumentFileUrl(doc);
+  const inferredMimeType = extras.mimeType || inferMimeTypeFromUrl(resolvedFileUrl || doc.file_url || doc.storage_object_key || '');
 
   return {
     id: doc.id,
@@ -66,7 +83,7 @@ const mapDocumentForClient = (doc, extras = {}) => {
     description: extras.description || null,
     fileName: extras.fileName || doc.title || 'Document',
     fileSize: extras.fileSize || 0,
-    mimeType: extras.mimeType || null,
+    mimeType: inferredMimeType || null,
     fileUrl: resolvedFileUrl,
     previewUrl: resolvedFileUrl,
     storageProvider: doc.storage_provider || null,
@@ -446,7 +463,6 @@ const getDocumentPreviewUrl = async ({ userId, coachingId, role, documentId }) =
   await validatePreviewAccess({ userId, coachingId, role, documentId });
   const token = createPreviewUrlToken({ userId, coachingId, role, documentId });
   const baseUrl = (process.env.API_BASE_URL || '').trim();
-  // if i add /api in apibaseurl auth will break because preview endpoint is also under /api, so removing trailing /api if exists
   const normalizedBaseUrl = baseUrl? baseUrl.replace(/\/+$/, '').replace(/\/api$/i, '') : '';
   const previewPath = `/api/documents/preview/${token}`;
   return normalizedBaseUrl ? `${normalizedBaseUrl}${previewPath}` : previewPath;
