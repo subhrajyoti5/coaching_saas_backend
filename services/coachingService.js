@@ -74,11 +74,10 @@ const createCoaching = async (coachingData, creatorId) => {
   return coaching;
 };
 
-const findOrCreateUserByEmail = async (email, coachingId, firstName = 'User', lastName = '') => {
+const findOrCreateUserByEmail = async (email, firstName = 'User', lastName = '', role = ROLES.STUDENT) => {
   let user = await prisma.user.findFirst({
     where: {
-      email,
-      coaching_center_id: Number(coachingId)
+      email
     }
   });
 
@@ -87,8 +86,8 @@ const findOrCreateUserByEmail = async (email, coachingId, firstName = 'User', la
       data: {
         email,
         name: buildName(firstName, lastName),
-        role: ROLES.STUDENT,
-        coaching_center_id: Number(coachingId),
+        role,
+        coaching_center_id: null,
         is_active: true
       }
     });
@@ -103,9 +102,9 @@ const addTeacherToCoaching = async (email, coachingId, addedBy, teacherData = {}
   const numericCoachingId = Number(coachingId);
   const user = await findOrCreateUserByEmail(
     email,
-    numericCoachingId,
     teacherData.firstName || 'Teacher',
-    teacherData.lastName || ''
+    teacherData.lastName || '',
+    ROLES.TEACHER
   );
 
   if (user.coaching_center_id === numericCoachingId) {
@@ -153,9 +152,9 @@ const addStudentToCoaching = async (email, coachingId, addedBy, studentData = {}
   const numericCoachingId = Number(coachingId);
   const user = await findOrCreateUserByEmail(
     email,
-    numericCoachingId,
     studentData.firstName || 'Student',
-    studentData.lastName || ''
+    studentData.lastName || '',
+    ROLES.STUDENT
   );
 
   if (user.coaching_center_id === numericCoachingId) {
