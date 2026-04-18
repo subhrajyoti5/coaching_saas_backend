@@ -36,8 +36,8 @@ const mapQuestionForStudent = (question) => ({
 });
 
 const mapTestForClient = (test) => {
-  const maxScore = Array.isArray(test.questions)
-    ? test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0)
+  const maxScore = Array.isArray(test.test_questions)
+    ? test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0)
     : 0;
 
   return {
@@ -134,7 +134,7 @@ const getAuthorizedTest = async (testId, requester) => {
     include: {
       coaching_center: { select: { id: true, name: true } },
       test_batches: { include: { batch: { select: { id: true, name: true } } } },
-      questions: true
+      test_questions: { include: { question: true } }
     }
   });
 
@@ -360,7 +360,7 @@ const submitTest = async ({ testId, answers }, userId) => {
 
   const test = await prisma.test.findUnique({
     where: { id: numericTestId },
-    include: { questions: true }
+    include: { test_questions: { include: { question: true } } }
   });
   if (!test) throw new Error('Test not found');
 
@@ -374,7 +374,8 @@ const submitTest = async ({ testId, answers }, userId) => {
   let score = 0;
   const answerRows = [];
 
-  for (const question of test.questions) {
+  for (const testQuestion of test.test_questions) {
+    const question = testQuestion.question;
     const raw = answerMap[question.id] ?? answerMap[String(question.id)] ?? null;
     const selected = raw ? String(raw).toUpperCase() : null;
     const isCorrect = Boolean(selected && selected === question.correct_option);
@@ -401,7 +402,7 @@ const submitTest = async ({ testId, answers }, userId) => {
     });
   });
 
-  const totalMarks = test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+  const totalMarks = test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0);
   const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
   const result = {
     testId: numericTestId,
@@ -428,7 +429,7 @@ const getTeacherLeaderboard = async (testId, coachingId, requester = null) => {
     ? await getAuthorizedTest(testId, requester)
     : await prisma.test.findFirst({
         where: { id: Number(testId), coaching_center_id: Number(coachingId) },
-        include: { questions: true }
+        include: { test_questions: { include: { question: true } } }
       });
   if (!test) throw new Error('Test not found');
 
@@ -438,7 +439,7 @@ const getTeacherLeaderboard = async (testId, coachingId, requester = null) => {
     orderBy: [{ score: 'desc' }, { submitted_at: 'asc' }]
   });
 
-  const totalMarks = test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+  const totalMarks = test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0);
   const ranking = attempts.map((row, index) => ({
     rank: index + 1,
     studentId: row.student_id,
@@ -478,13 +479,13 @@ const getMyResults = async (userId, coachingId) => {
   const attempts = await prisma.testAttempt.findMany({
     where: { student_id: Number(userId), test: { coaching_center_id: Number(coachingId) } },
     include: {
-      test: { include: { questions: true } }
+      test: { include: { test_questions: { include: { question: true } } } }
     },
     orderBy: { submitted_at: 'desc' }
   });
 
   return attempts.map((attempt) => {
-    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const totalMarks = attempt.test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0);
     const score = Number(attempt.score || 0);
     const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     return {
@@ -509,14 +510,14 @@ const getStudentResults = async (studentId) => {
   const attempts = await prisma.testAttempt.findMany({
     where: { student_id: Number(studentId) },
     include: {
-      test: { include: { questions: true } },
+      test: { include: { test_questions: { include: { question: true } } } },
       student: { select: { id: true, name: true } }
     },
     orderBy: { submitted_at: 'desc' }
   });
 
   return attempts.map((attempt) => {
-    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const totalMarks = attempt.test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0);
     const score = Number(attempt.score || 0);
     const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     return {
@@ -539,14 +540,14 @@ const getTestResults = async (testId, requester = null) => {
   const attempts = await prisma.testAttempt.findMany({
     where: { test_id: Number(testId) },
     include: {
-      test: { include: { questions: true } },
+      test: { include: { test_questions: { include: { question: true } } } },
       student: { select: { id: true, name: true } }
     },
     orderBy: [{ score: 'desc' }, { submitted_at: 'asc' }]
   });
 
   return attempts.map((attempt) => {
-    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const totalMarks = attempt.test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0);
     const score = Number(attempt.score || 0);
     const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     return {
@@ -578,7 +579,7 @@ const publishTest = async (testId, requester) => {
     data: { results_published: true }
   });
   await audit({ userId: Number(requester.userId), action: 'PUBLISH_TEST', entityType: 'TEST', entityId: Number(testId) });
-  return mapTestForClient({ ...test, test_batches: [], questions: [], coaching_center: null });
+  return mapTestForClient({ ...test, test_batches: [], test_questions: [], coaching_center: null });
 };
 
 // Get all student performance (test attempts) for a coaching center
@@ -595,7 +596,7 @@ const getCoachingStudentPerformance = async (coachingId) => {
           id: true, 
           title: true, 
           start_time: true,
-          questions: { select: { marks: true } }
+          test_questions: { include: { question: { select: { marks: true } } } }
         }
       },
       student: { select: { id: true, name: true, email: true } },
@@ -605,7 +606,7 @@ const getCoachingStudentPerformance = async (coachingId) => {
   });
 
   return attempts.map((attempt) => {
-    const totalMarks = attempt.test.questions.reduce((sum, q) => sum + Number(q.marks || 0), 0);
+    const totalMarks = attempt.test.test_questions.reduce((sum, row) => sum + Number(row.question?.marks || 0), 0);
     const score = Number(attempt.score || 0);
     const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
     
