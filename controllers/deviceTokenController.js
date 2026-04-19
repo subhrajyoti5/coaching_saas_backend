@@ -107,8 +107,48 @@ const getNotificationDiagnostics = async (req, res) => {
   }
 };
 
+const sendTestPush = async (req, res) => {
+  try {
+    const requestedUserId = Number(req.body?.userId);
+    const fallbackUserId = Number(req.user?.userId);
+    const targetUserId = requestedUserId || fallbackUserId;
+
+    if (!targetUserId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Invalid payload',
+        message: 'userId is required'
+      });
+    }
+
+    const pushResult = await notificationService.sendPushToUsers({
+      userIds: [targetUserId],
+      title: 'Shixa Test Notification',
+      body: 'This is a delivery test from backend diagnostics.',
+      data: {
+        type: 'diagnostic_test',
+        userId: targetUserId,
+        triggeredBy: Number(req.user?.userId) || '',
+        timestamp: new Date().toISOString()
+      },
+      androidTag: `diagnostic_${targetUserId}`
+    });
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'Test push attempted',
+      targetUserId,
+      result: pushResult
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to send test push',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   registerDeviceToken,
   deactivateDeviceToken,
-  getNotificationDiagnostics
+  getNotificationDiagnostics,
+  sendTestPush
 };
