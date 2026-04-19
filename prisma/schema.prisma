@@ -131,6 +131,7 @@ model User {
   documents         Document[]      @relation("DocumentUploadedBy")
   device_tokens     DeviceToken[]
   uploaded_syllabuses Syllabus[]    @relation("SyllabusUploadedBy")
+  content_sources   ContentSource[]
   created_questions Question[]      @relation("QuestionCreatedBy")
   ai_generations    AiGeneration[]  @relation("AiGenerationTeacher")
 
