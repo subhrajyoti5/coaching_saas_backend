@@ -3,6 +3,22 @@ const prisma = require('../config/database');
 
 let firebaseReady = false;
 
+const getFcmConfigStatus = () => {
+  const projectId = process.env.FCM_PROJECT_ID;
+  const clientEmail = process.env.FCM_CLIENT_EMAIL;
+  const privateKeyRaw = process.env.FCM_PRIVATE_KEY;
+
+  return {
+    hasProjectId: Boolean(projectId),
+    hasClientEmail: Boolean(clientEmail),
+    hasPrivateKey: Boolean(privateKeyRaw)
+  };
+};
+
+const logNotificationEvent = (message, payload = {}) => {
+  console.log('[Notification]', message, payload);
+};
+
 const compactText = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 
 const clampText = (value, maxLength) => {
@@ -107,6 +123,7 @@ const initFirebase = () => {
   const privateKeyRaw = process.env.FCM_PRIVATE_KEY;
 
   if (!projectId || !clientEmail || !privateKeyRaw) {
+    logNotificationEvent('FCM credentials missing', getFcmConfigStatus());
     return false;
   }
 
@@ -128,7 +145,10 @@ const ensureFirebaseReady = () => {
   try {
     return initFirebase();
   } catch (error) {
-    console.error('FCM init failed:', error.message);
+    console.error('FCM init failed:', {
+      message: error.message,
+      config: getFcmConfigStatus()
+    });
     return false;
   }
 };
@@ -156,14 +176,66 @@ const getActiveTokensByUserIds = async (userIds = []) => {
   return rows.map((row) => row.token);
 };
 
+const getNotificationDiagnostics = async ({ coachingId } = {}) => {
+  const parsedCoachingId = Number(coachingId);
+  if (!parsedCoachingId) {
+    return {
+      sent: false,
+      reason: 'invalid_coaching_id',
+      config: getFcmConfigStatus()
+    };
+  }
+
+  const where = {
+    is_active: true,
+    user: {
+      coaching_center_id: parsedCoachingId
+    }
+  };
+
+  const [activeTokenCount, byPlatform] = await Promise.all([
+    prisma.deviceToken.count({ where }),
+    prisma.deviceToken.groupBy({
+      by: ['platform'],
+      where,
+      _count: { _all: true }
+    })
+  ]);
+
+  return {
+    sent: true,
+    coachingId: parsedCoachingId,
+    firebaseReady: ensureFirebaseReady(),
+    config: getFcmConfigStatus(),
+    activeTokenCount,
+    byPlatform: byPlatform.map((row) => ({
+      platform: row.platform,
+      count: row._count._all
+    }))
+  };
+};
+
 const sendPushToUsers = async ({ userIds = [], title, body, data = {}, androidTag = '' }) => {
   const normalizedIds = [...new Set(userIds.map(Number).filter(Boolean))];
-  if (!normalizedIds.length) return { sent: false, reason: 'no_users' };
+  if (!normalizedIds.length) {
+    logNotificationEvent('Push skipped: no_users', { userIdCount: 0 });
+    return { sent: false, reason: 'no_users' };
+  }
 
   const tokens = await getActiveTokensByUserIds(normalizedIds);
-  if (!tokens.length) return { sent: false, reason: 'no_tokens' };
+  if (!tokens.length) {
+    logNotificationEvent('Push skipped: no_tokens', {
+      userIdCount: normalizedIds.length
+    });
+    return { sent: false, reason: 'no_tokens' };
+  }
 
   if (!ensureFirebaseReady()) {
+    logNotificationEvent('Push skipped: fcm_not_configured', {
+      userIdCount: normalizedIds.length,
+      tokenCount: tokens.length,
+      config: getFcmConfigStatus()
+    });
     return { sent: false, reason: 'fcm_not_configured' };
   }
 
@@ -185,13 +257,33 @@ const sendPushToUsers = async ({ userIds = [], title, body, data = {}, androidTa
     }
   };
 
-  const response = await admin.messaging().sendEachForMulticast(message);
+  let response;
+  try {
+    response = await admin.messaging().sendEachForMulticast(message);
+  } catch (error) {
+    console.error('FCM send failed:', {
+      message: error.message,
+      code: error.code || 'unknown',
+      userIdCount: normalizedIds.length,
+      tokenCount: tokens.length,
+      notificationType: data.type || 'unknown'
+    });
+    return {
+      sent: false,
+      reason: 'fcm_send_failed',
+      errorCode: error.code || 'unknown'
+    };
+  }
 
   const invalidTokens = [];
+  const failureCodes = {};
   response.responses.forEach((result, idx) => {
     if (result.success) return;
 
     const code = result.error?.code || '';
+    if (code) {
+      failureCodes[code] = (failureCodes[code] || 0) + 1;
+    }
     if (
       code.includes('registration-token-not-registered') ||
       code.includes('invalid-registration-token')
@@ -201,6 +293,16 @@ const sendPushToUsers = async ({ userIds = [], title, body, data = {}, androidTa
   });
 
   await disableInvalidTokens(invalidTokens);
+
+  logNotificationEvent('Push send result', {
+    notificationType: data.type || 'unknown',
+    userIdCount: normalizedIds.length,
+    tokenCount: tokens.length,
+    successCount: response.successCount,
+    failureCount: response.failureCount,
+    invalidTokenCount: invalidTokens.length,
+    failureCodes
+  });
 
   return {
     sent: true,
@@ -290,6 +392,8 @@ const sendMaterialUpdateNotification = async ({ recipientUserIds = [], material 
 };
 
 module.exports = {
+  getFcmConfigStatus,
+  getNotificationDiagnostics,
   sendPushToUsers,
   sendNoticeNotification,
   sendPaymentClaimStatusNotification,

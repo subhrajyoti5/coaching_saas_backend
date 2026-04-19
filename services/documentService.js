@@ -301,7 +301,7 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
       const firstMaterial = mappedDocuments[0];
       const firstBatch = mappedDocuments[0]?.batch?.name || 'your batch';
 
-      await notificationService.sendMaterialUpdateNotification({
+      const pushResult = await notificationService.sendMaterialUpdateNotification({
         recipientUserIds,
         material: {
           id: firstMaterial?.id,
@@ -312,6 +312,14 @@ const uploadTeacherDocument = async ({ userId, role, coachingId, payload, file }
           fileUrl: firstMaterial?.fileUrl
         }
       });
+
+      if (!pushResult?.sent) {
+        console.warn('[Material Push] Not sent', {
+          documentId: firstMaterial?.id,
+          recipientCount: recipientUserIds.length,
+          reason: pushResult?.reason || 'unknown'
+        });
+      }
     }
   } catch (error) {
     console.error('Material upload push notification failed:', error.message);

@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { HTTP_STATUS } = require('../config/constants');
+const notificationService = require('../services/notificationService');
 
 const registerDeviceToken = async (req, res) => {
   try {
@@ -89,7 +90,25 @@ const deactivateDeviceToken = async (req, res) => {
   }
 };
 
+const getNotificationDiagnostics = async (req, res) => {
+  try {
+    const coachingId = req.coachingId || req.user?.coachingId;
+    const diagnostics = await notificationService.getNotificationDiagnostics({ coachingId });
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'Notification diagnostics retrieved',
+      diagnostics
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to retrieve notification diagnostics',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   registerDeviceToken,
-  deactivateDeviceToken
+  deactivateDeviceToken,
+  getNotificationDiagnostics
 };

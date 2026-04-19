@@ -289,16 +289,28 @@ const sendSubscriptionStatusNotification = async (coachingId, newStatus) => {
       newStatus === SUBSCRIPTION_STATUS.PAST_DUE ? 'Past Due' :
       newStatus === SUBSCRIPTION_STATUS.CANCELLED ? 'Cancelled' : newStatus;
 
-    await notificationService.sendSubscriptionStatusNotification({
+    const pushResult = await notificationService.sendSubscriptionStatusNotification({
       ownerUserIds: ownerIds,
       status: newStatus,
       coachingId: String(coachingId)
     });
 
+    if (!pushResult?.sent) {
+      console.warn('[Notification] Subscription push not sent', {
+        coachingId,
+        status: statusLabel,
+        ownerCount: ownerIds.length,
+        reason: pushResult?.reason || 'unknown'
+      });
+      return;
+    }
+
     console.log('[Notification] Subscription push sent', {
       coachingId,
       status: statusLabel,
-      ownerCount: ownerIds.length
+      ownerCount: ownerIds.length,
+      successCount: pushResult.successCount,
+      failureCount: pushResult.failureCount
     });
   } catch (error) {
     // Log but don't block subscription status update
@@ -447,7 +459,16 @@ const updateCenterStateByRevenueCatEvent = async ({ eventType, subRecord, eventP
     });
   });
 
-  sendSubscriptionStatusNotification(coachingId, mappedStatus).catch(() => {});
+  try {
+    await sendSubscriptionStatusNotification(coachingId, mappedStatus);
+  } catch (error) {
+    console.error('[Notification] Subscription webhook push failed', {
+      coachingId,
+      mappedStatus,
+      eventType: eventPayload.eventType,
+      message: error.message
+    });
+  }
 };
 
 const processRevenueCatWebhook = async ({ rawBody, authorization, signature }) => {

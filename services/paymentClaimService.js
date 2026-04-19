@@ -205,11 +205,19 @@ const verifyClaim = async (claimId, requesterId) => {
   });
 
   try {
-    await notificationService.sendPaymentClaimStatusNotification({
+    const pushResult = await notificationService.sendPaymentClaimStatusNotification({
       studentId: claim.student_id,
       claim,
       status: CLAIM_STATUS.VERIFIED
     });
+
+    if (!pushResult?.sent) {
+      console.warn('[Payment Claim Push] Not sent', {
+        claimId: claim.id,
+        studentId: claim.student_id,
+        reason: pushResult?.reason || 'unknown'
+      });
+    }
   } catch (error) {
     console.error('Claim verify push notification failed:', error.message);
   }
@@ -253,11 +261,19 @@ const approveClaim = async (claimId, requesterId) => {
   });
 
   try {
-    await notificationService.sendPaymentClaimStatusNotification({
+    const pushResult = await notificationService.sendPaymentClaimStatusNotification({
       studentId: claim.student_id,
       claim,
       status: CLAIM_STATUS.APPROVED
     });
+
+    if (!pushResult?.sent) {
+      console.warn('[Payment Claim Push] Not sent', {
+        claimId: claim.id,
+        studentId: claim.student_id,
+        reason: pushResult?.reason || 'unknown'
+      });
+    }
   } catch (error) {
     console.error('Claim approve push notification failed:', error.message);
   }
@@ -296,11 +312,19 @@ const rejectClaim = async (claimId, requesterId, reason) => {
   });
 
   try {
-    await notificationService.sendPaymentClaimStatusNotification({
+    const pushResult = await notificationService.sendPaymentClaimStatusNotification({
       studentId: claim.student_id,
       claim,
       status: CLAIM_STATUS.REJECTED
     });
+
+    if (!pushResult?.sent) {
+      console.warn('[Payment Claim Push] Not sent', {
+        claimId: claim.id,
+        studentId: claim.student_id,
+        reason: pushResult?.reason || 'unknown'
+      });
+    }
   } catch (error) {
     console.error('Claim reject push notification failed:', error.message);
   }

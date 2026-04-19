@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config({ override: true });
+const { getFcmConfigStatus } = require('./services/notificationService');
 
 const app = express();
 const { startJoinRequestExpiryJob, stopJoinRequestExpiryJob } = require('./services/joinRequestExpiryJob');
@@ -95,6 +96,7 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('FCM config status:', getFcmConfigStatus());
   startJoinRequestExpiryJob();
 });
 
