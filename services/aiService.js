@@ -10,6 +10,34 @@ class AiService {
     this.retryDelays = [2000, 5000, 10000]; // 2s, 5s, 10s
   }
 
+  normalizeTopicName(topic = '') {
+    return String(topic || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  async getOrCreateTopic(coachingCenterId, topicName) {
+    const normalizedName = this.normalizeTopicName(topicName);
+    if (!normalizedName) return null;
+
+    return prisma.topic.upsert({
+      where: {
+        coaching_center_id_normalized_name: {
+          coaching_center_id: coachingCenterId,
+          normalized_name: normalizedName,
+        },
+      },
+      update: { name: topicName.trim() },
+      create: {
+        coaching_center_id: coachingCenterId,
+        name: topicName.trim(),
+        normalized_name: normalizedName,
+      },
+    });
+  }
+
   getGeminiModelCandidates() {
     const configuredModels = String(process.env.GEMINI_MODEL || '')
       .split(',')
@@ -30,7 +58,7 @@ class AiService {
    * Generate MCQ questions using AI
    * Includes retry logic with exponential backoff
    */
-  async generateMcqQuestions(generationId, prompt, numQuestions) {
+  async generateMcqQuestions(generationId, prompt, numQuestions, options = {}) {
     try {
       // Update status to IN_PROGRESS
       await prisma.aiGeneration.update({
@@ -50,7 +78,8 @@ class AiService {
       // Save questions to database
       const savedQuestions = await this.saveGeneratedQuestions(
         generationId,
-        validated
+        validated,
+        options
       );
 
       // Update generation status
@@ -249,7 +278,7 @@ class AiService {
   /**
    * Save generated questions to database
    */
-  async saveGeneratedQuestions(generationId, questions) {
+  async saveGeneratedQuestions(generationId, questions, options = {}) {
     const generation = await prisma.aiGeneration.findUnique({
       where: { id: generationId },
     });
@@ -258,9 +287,22 @@ class AiService {
       throw new Error('Generation record not found');
     }
 
+    const topicNames = Array.isArray(options.topicNames) ? options.topicNames : [];
+    const topicRows = [];
+    for (const topicName of topicNames) {
+      const topic = await this.getOrCreateTopic(generation.coaching_center_id, topicName);
+      if (topic) {
+        topicRows.push(topic);
+      }
+    }
+
     const savedQuestions = [];
 
     for (const q of questions) {
+      const topicRow = topicRows.length > 0
+        ? topicRows[savedQuestions.length % topicRows.length]
+        : null;
+
       const question = await prisma.question.create({
         data: {
           coaching_center_id: generation.coaching_center_id,
@@ -268,6 +310,7 @@ class AiService {
           subject_id: null, // Could be inferred from syllabus
           syllabus_id: generation.syllabus_id,
           ai_generation_id: generation.id,
+          topic_id: topicRow?.id || null,
           question_text: q.questionText,
           difficulty_level: q.difficultyLevel || 'MEDIUM',
           marks: q.marks || 1,
@@ -286,6 +329,7 @@ class AiService {
         },
         include: {
           options: { orderBy: { order_index: 'asc' } },
+          topic: true,
         },
       });
 
@@ -331,6 +375,7 @@ class AiService {
       difficultyDist,
       marksPerQ,
       negativeMarking,
+      topics = [],
     } = params;
 
     const easyCount = Math.round(numQuestions * (difficultyDist?.EASY || 0.2));
@@ -344,6 +389,8 @@ class AiService {
 
   SYLLABUS CONTENT:
   ${syllabus}
+
+  ${Array.isArray(topics) && topics.length > 0 ? `FOCUS TOPICS:\n${topics.map((topic, index) => `${index + 1}. ${topic}`).join('\n')}\n` : ''}
 
   OUTPUT RULES:
   1. Return ONLY a JSON array. No markdown, no code fences, no explanations.

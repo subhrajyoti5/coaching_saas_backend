@@ -2,7 +2,7 @@ const multer = require('multer');
 const path = require('path');
 
 const allowedExtensions = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
-const maxFileSizeBytes = Number(process.env.DOCUMENT_MAX_FILE_SIZE_BYTES || 10 * 1024 * 1024);
+const maxFileSizeBytes = Number(process.env.DOCUMENT_MAX_FILE_SIZE_BYTES || (10 * 1024 * 1024) - 1);
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {

@@ -3,6 +3,8 @@ const aiService = require('../services/aiService');
 const { HTTP_STATUS, SUCCESS_MESSAGES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
 
+const MAX_PIPELINE_UPLOAD_BYTES = (10 * 1024 * 1024) - 1;
+
 class AiTestStudioController {
   // ============ SYLLABUS ENDPOINTS ============
 
@@ -84,6 +86,8 @@ class AiTestStudioController {
         prompt = '',
         context = '',
         attachments = [],
+        extractedText = '',
+        topics = [],
         batchId,
         subjectId,
         title,
@@ -158,19 +162,21 @@ class AiTestStudioController {
       await audit('AI_GENERATION_STARTED', userId, { generationId: generation.id });
 
       const promptText = aiService.buildGenerationPrompt(
-        `${syllabus.extracted_text || syllabus.name || 'No syllabus text provided.'}`,
+        `${extractedText || syllabus.extracted_text || syllabus.name || 'No syllabus text provided.'}`,
         {
           numQuestions: Number(numQuestions),
           difficultyDist,
           marksPerQ: Number(marksPerQ || 1),
           negativeMarking: Number(negativeMarking || 0),
+          topics: Array.isArray(topics) ? topics : [],
         }
       );
 
       const generatedQuestions = await aiService.generateMcqQuestions(
         generation.id,
         promptText,
-        Number(numQuestions)
+        Number(numQuestions),
+        { topicNames: Array.isArray(topics) ? topics : [] }
       );
 
       return res.status(HTTP_STATUS.CREATED).json({
@@ -183,6 +189,72 @@ class AiTestStudioController {
       console.error('Trigger AI generation error:', error);
       return res.status(HTTP_STATUS.BAD_REQUEST).json({
         error: 'Failed to trigger AI generation',
+        message: error.message,
+      });
+    }
+  }
+
+  static async extractPipelineContent(req, res) {
+    try {
+      const { coachingId } = req.params;
+      const userId = req.user.userId;
+      const { prompt = '', context = '' } = req.body;
+      const files = req.files || [];
+
+      const totalUploadBytes = files.reduce((sum, file) => sum + Number(file?.size || 0), 0);
+      if (totalUploadBytes > MAX_PIPELINE_UPLOAD_BYTES) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Validation error',
+          message: 'Combined PDF and image uploads must stay under 10 MB',
+        });
+      }
+
+      if (files.length === 0 && !String(prompt).trim() && !String(context).trim()) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          error: 'Validation error',
+          message: 'Upload files or provide text before extracting topics',
+        });
+      }
+
+      const extraction = await aiTestStudioService.extractAndCompressContent({
+        files,
+        prompt,
+        context,
+      });
+
+      const contentSource = await aiTestStudioService.persistExtractedContent(
+        parseInt(coachingId),
+        userId,
+        extraction,
+        {
+          sourceType: files.length > 0 ? 'UPLOAD' : 'CHAT',
+          fileCount: files.length,
+        }
+      );
+
+      const reusableQuestions = await aiTestStudioService.getQuestionReuseCandidates(
+        parseInt(coachingId),
+        extraction.topics,
+        null,
+        10
+      );
+
+      await audit('AI_CONTENT_EXTRACTED', userId, {
+        coachingId,
+        fileCount: files.length,
+        topicCount: extraction.topics.length,
+      });
+
+      return res.status(HTTP_STATUS.SUCCESS).json({
+        message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+        extraction,
+        contentSource,
+        reusableQuestions,
+      });
+    } catch (error) {
+      console.error('Extract pipeline content error:', error);
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Failed to extract pipeline content',
         message: error.message,
       });
     }

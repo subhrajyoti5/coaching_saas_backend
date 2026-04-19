@@ -28,6 +28,8 @@ model CoachingCenter {
   syllabuses          Syllabus[]
   ai_generations      AiGeneration[]
   questions           Question[]
+  topics              Topic[]
+  content_sources     ContentSource[]
   test_attempts       TestAttempt[]
 
   @@map("coaching_centers")
@@ -336,6 +338,43 @@ model Syllabus {
   @@map("syllabuses")
 }
 
+model ContentSource {
+  id                 Int       @id @default(autoincrement())
+  coaching_center_id  Int
+  teacher_id         Int
+  source_type        String    @default("CHAT")
+  raw_text           String?   @db.Text
+  processed_topics   Json?
+  keywords           Json?
+  metadata           Json?
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+
+  coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  teacher         User           @relation(fields: [teacher_id], references: [id], onDelete: Cascade)
+
+  @@index([coaching_center_id], map: "idx_content_sources_center")
+  @@index([teacher_id], map: "idx_content_sources_teacher")
+  @@map("content_sources")
+}
+
+model Topic {
+  id                 Int       @id @default(autoincrement())
+  coaching_center_id Int?
+  name               String
+  normalized_name    String
+  usage_count        Int       @default(0)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+
+  coaching_center CoachingCenter? @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
+  questions       Question[]
+
+  @@unique([coaching_center_id, normalized_name], map: "uniq_topics_center_normalized")
+  @@index([coaching_center_id], map: "idx_topics_center")
+  @@map("topics")
+}
+
 model AiGeneration {
   id                 Int       @id @default(autoincrement())
   coaching_center_id Int
@@ -373,6 +412,7 @@ model Question {
   subject_id           Int?
   syllabus_id          Int?
   ai_generation_id     Int?
+  topic_id             Int?
   question_text        String    @db.Text
   difficulty_level     String    @default("MEDIUM")
   marks                Int       @default(1)
@@ -380,6 +420,7 @@ model Question {
   explanation          String?   @db.Text
   source               String?   @default("MANUAL")
   is_from_bank         Boolean   @default(false)
+  usage_count          Int       @default(0)
   created_at           DateTime  @default(now()) @db.Timestamp(6)
   updated_at           DateTime  @updatedAt @db.Timestamp(6)
 
@@ -388,6 +429,7 @@ model Question {
   subject         Subject?        @relation("QuestionSubject", fields: [subject_id], references: [id])
   syllabus        Syllabus?       @relation("QuestionsFromSyllabus", fields: [syllabus_id], references: [id])
   ai_generation   AiGeneration?   @relation("QuestionsInGeneration", fields: [ai_generation_id], references: [id])
+  topic           Topic?          @relation(fields: [topic_id], references: [id])
   options         QuestionOption[]
   test_questions  TestQuestion[]
   attempts_answers TestAttemptAnswer[]
@@ -396,6 +438,7 @@ model Question {
   @@index([coaching_center_id], map: "idx_question_center")
   @@index([created_by], map: "idx_question_creator")
   @@index([is_from_bank], map: "idx_question_bank")
+  @@index([topic_id], map: "idx_question_topic")
   @@map("questions")
 }
 

@@ -3,6 +3,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { teacherOrOwner, ownerOnly } = require('../middleware/roles');
 const { validateCoachingAccess } = require('../middleware/coachingIsolation');
 const { checkPremiumSubscription } = require('../middleware/subscriptionCheck');
+const { uploadTeacherDocument } = require('../middleware/upload');
 const {
   validateTestCreation,
   validateTestUpdate,
@@ -49,6 +50,20 @@ router.get(
 );
 
 // ============ AI GENERATION ROUTES ============
+
+/**
+ * POST /api/coaching/:coachingId/ai-tests/pipeline/extract
+ * Extract and compress uploaded syllabus content into reviewable topics
+ */
+router.post(
+  '/pipeline/extract',
+  authenticateToken,
+  teacherOrOwner,
+  validateCoachingAccess,
+  checkPremiumSubscription,
+  uploadTeacherDocument.array('files', 10),
+  AiTestStudioController.extractPipelineContent
+);
 
 /**
  * POST /api/coaching/:coachingId/ai-tests/generate

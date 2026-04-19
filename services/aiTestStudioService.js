@@ -1,4 +1,14 @@
+const path = require('path');
+const pdfParse = require('pdf-parse');
+const { createWorker } = require('tesseract.js');
 const prisma = require('../config/database');
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'these', 'those', 'into', 'your', 'their', 'have', 'has', 'had',
+  'are', 'was', 'were', 'been', 'being', 'will', 'shall', 'should', 'would', 'could', 'may', 'might', 'must', 'can',
+  'not', 'only', 'also', 'such', 'than', 'then', 'when', 'where', 'what', 'which', 'who', 'whom', 'why', 'how',
+  'unit', 'chapter', 'topic', 'topics', 'lesson', 'lessons', 'syllabus', 'notes', 'content', 'pdf', 'image', 'images'
+]);
 
 /**
  * AI Test Studio Service
@@ -6,6 +16,214 @@ const prisma = require('../config/database');
  */
 class AiTestStudioService {
   // ============ SYLLABUS OPERATIONS ============
+
+  normalizePipelineText(text = '') {
+    return String(text || '')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  normalizeTopicName(topic = '') {
+    return String(topic || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  async getOrCreateTopic(coachingCenterId, topicName) {
+    const normalizedName = this.normalizeTopicName(topicName);
+    if (!normalizedName) {
+      return null;
+    }
+
+    return prisma.topic.upsert({
+      where: {
+        coaching_center_id_normalized_name: {
+          coaching_center_id: coachingCenterId,
+          normalized_name: normalizedName,
+        },
+      },
+      update: {
+        name: topicName.trim(),
+      },
+      create: {
+        coaching_center_id: coachingCenterId,
+        name: topicName.trim(),
+        normalized_name: normalizedName,
+      },
+    });
+  }
+
+  async savePipelineDraft(coachingCenterId, teacherId, extraction, metadata = {}) {
+    const topics = Array.isArray(extraction.topics) ? extraction.topics : [];
+
+    const topicRows = [];
+    for (const topicName of topics) {
+      const topic = await this.getOrCreateTopic(coachingCenterId, topicName);
+      if (topic) {
+        topicRows.push(topic);
+      }
+    }
+
+    return prisma.contentSource.create({
+      data: {
+        coaching_center_id: coachingCenterId,
+        teacher_id: teacherId,
+        source_type: metadata.sourceType || 'CHAT',
+        raw_text: extraction.rawText || null,
+        processed_topics: topics,
+        keywords: extraction.keywords || [],
+        metadata: {
+          ...metadata,
+          topicIds: topicRows.map((topic) => topic.id),
+        },
+      },
+      include: {
+        teacher: { select: { id: true, name: true, email: true } },
+        coaching_center: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async getReusableQuestions(coachingCenterId, filters = {}) {
+    const { topicNames = [], difficultyLevel, limit = 10 } = filters;
+    const normalizedNames = [...new Set(
+      topicNames
+        .map((topic) => this.normalizeTopicName(topic))
+        .filter(Boolean)
+    )];
+
+    const topics = normalizedNames.length > 0
+      ? await prisma.topic.findMany({
+          where: {
+            coaching_center_id: coachingCenterId,
+            normalized_name: { in: normalizedNames },
+          },
+        })
+      : [];
+
+    if (topics.length === 0) {
+      return [];
+    }
+
+    return prisma.question.findMany({
+      where: {
+        coaching_center_id: coachingCenterId,
+        is_from_bank: true,
+        ...(difficultyLevel ? { difficulty_level: difficultyLevel } : {}),
+        topic_id: { in: topics.map((topic) => topic.id) },
+      },
+      include: {
+        options: { orderBy: { order_index: 'asc' } },
+        topic: true,
+      },
+      orderBy: [
+        { usage_count: 'desc' },
+        { created_at: 'desc' },
+      ],
+      take: limit,
+    });
+  }
+
+  extractTopicCandidates(text = '') {
+    const lines = this.normalizePipelineText(text).split('\n');
+    const candidates = [];
+
+    for (const line of lines) {
+      const cleaned = line.replace(/^\d+[.)\-:\s]+/, '').replace(/^[-*•]+\s*/, '').trim();
+      if (cleaned.length < 4 || cleaned.length > 80) continue;
+
+      const words = cleaned.split(/\s+/);
+      if (words.length > 10) continue;
+
+      if (/[A-Za-z]/.test(cleaned)) {
+        candidates.push(cleaned);
+      }
+    }
+
+    return [...new Set(candidates)];
+  }
+
+  extractKeywords(text = '') {
+    const tokens = String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+
+    const frequencies = new Map();
+    for (const token of tokens) {
+      frequencies.set(token, (frequencies.get(token) || 0) + 1);
+    }
+
+    return [...frequencies.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([token]) => token);
+  }
+
+  async extractTextFromFile(file) {
+    const extension = path.extname((file?.originalname || '').toLowerCase());
+
+    if (extension === '.pdf') {
+      const parsed = await pdfParse(file.buffer);
+      return parsed.text || '';
+    }
+
+    if (['.jpg', '.jpeg', '.png'].includes(extension)) {
+      try {
+        const worker = await createWorker('eng');
+        try {
+          const result = await worker.recognize(file.buffer);
+          return result?.data?.text || '';
+        } finally {
+          await worker.terminate();
+        }
+      } catch (error) {
+        console.warn('Image OCR failed, falling back to file name only:', error.message);
+        return file.originalname || '';
+      }
+    }
+
+    return file.originalname || '';
+  }
+
+  async extractAndCompressContent({ files = [], prompt = '', context = '' } = {}) {
+    const extractedSegments = [];
+
+    for (const file of files) {
+      const extracted = await this.extractTextFromFile(file);
+      if (extracted && extracted.trim()) {
+        extractedSegments.push(extracted);
+      }
+    }
+
+    const rawText = this.normalizePipelineText([
+      prompt,
+      context,
+      ...extractedSegments,
+    ].filter(Boolean).join('\n\n'));
+
+    const topicCandidates = this.extractTopicCandidates(rawText);
+    const keywords = this.extractKeywords(rawText);
+
+    const topics = topicCandidates.length > 0
+      ? topicCandidates.slice(0, 10)
+      : keywords.slice(0, 8).map((keyword) => keyword.replace(/_/g, ' '));
+
+    return {
+      rawText,
+      topics,
+      keywords,
+    };
+  }
 
   async uploadSyllabus(coachingCenterId, uploadedBy, data) {
     const { name, storageUrls, extractedText, batchId, subjectId } = data;
@@ -30,6 +248,10 @@ class AiTestStudioService {
     });
 
     return syllabus;
+  }
+
+  async persistExtractedContent(coachingCenterId, teacherId, extraction, metadata = {}) {
+    return this.savePipelineDraft(coachingCenterId, teacherId, extraction, metadata);
   }
 
   async getSyllabus(syllabusId, coachingCenterId) {
@@ -168,11 +390,15 @@ class AiTestStudioService {
       subjectId,
       syllabusId,
       aiGenerationId,
+      topicName,
+      topicId,
     } = questionData;
 
     if (!questionText || !options || options.length < 2) {
       throw new Error('Question must have text and at least 2 options');
     }
+
+    const resolvedTopicId = topicId || (topicName ? (await this.getOrCreateTopic(coachingCenterId, topicName))?.id : null);
 
     const question = await prisma.question.create({
       data: {
@@ -187,6 +413,7 @@ class AiTestStudioService {
         subject_id: subjectId || null,
         syllabus_id: syllabusId || null,
         ai_generation_id: aiGenerationId || null,
+        topic_id: resolvedTopicId || null,
         is_from_bank: true,
         options: {
           createMany: {
@@ -219,6 +446,7 @@ class AiTestStudioService {
     }
 
     const { questionText, options, difficultyLevel, marks, explanation } = updateData;
+    const { topicName, topicId } = updateData;
 
     // Check if question is used in submitted attempts
     const attempts = await prisma.testAttempt.findFirst({
@@ -248,6 +476,7 @@ class AiTestStudioService {
         difficulty_level: difficultyLevel || undefined,
         marks: marks || undefined,
         explanation: explanation || undefined,
+        topic_id: topicId || (topicName ? (await this.getOrCreateTopic(coachingCenterId, topicName))?.id : undefined),
         ...(options && {
           options: {
             createMany: {
@@ -268,7 +497,16 @@ class AiTestStudioService {
   }
 
   async getQuestionBank(coachingCenterId, createdBy, filters = {}) {
-    const { subjectId, difficultyLevel, skip = 0, limit = 20 } = filters;
+    const { subjectId, difficultyLevel, topicName, skip = 0, limit = 20 } = filters;
+    const topicFilter = topicName ? this.normalizeTopicName(topicName) : null;
+    const topic = topicFilter
+      ? await prisma.topic.findFirst({
+          where: {
+            coaching_center_id: coachingCenterId,
+            normalized_name: topicFilter,
+          },
+        })
+      : null;
 
     const where = {
       coaching_center_id: coachingCenterId,
@@ -276,6 +514,7 @@ class AiTestStudioService {
       is_from_bank: true,
       ...(subjectId && { subject_id: subjectId }),
       ...(difficultyLevel && { difficulty_level: difficultyLevel }),
+      ...(topic ? { topic_id: topic.id } : {}),
     };
 
     const [questions, total] = await Promise.all([
@@ -284,6 +523,7 @@ class AiTestStudioService {
         include: {
           options: { orderBy: { order_index: 'asc' } },
           analytics: true,
+          topic: true,
         },
         skip,
         take: limit,
@@ -293,6 +533,14 @@ class AiTestStudioService {
     ]);
 
     return { questions, total };
+  }
+
+  async getQuestionReuseCandidates(coachingCenterId, topicNames = [], difficultyLevel = null, limit = 10) {
+    return this.getReusableQuestions(coachingCenterId, {
+      topicNames,
+      difficultyLevel,
+      limit,
+    });
   }
 
   async deleteQuestion(questionId, coachingCenterId) {

@@ -39,7 +39,9 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
-    "pg": "^8.19.0"
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.19.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "eslint": "^10.0.2",

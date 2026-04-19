@@ -405,6 +405,35 @@ CREATE TABLE IF NOT EXISTS ai_generations (
 CREATE INDEX IF NOT EXISTS idx_ai_gen_center ON ai_generations(coaching_center_id);
 CREATE INDEX IF NOT EXISTS idx_ai_gen_teacher ON ai_generations(teacher_id);
 
+CREATE TABLE IF NOT EXISTS content_sources (
+    id SERIAL PRIMARY KEY,
+    coaching_center_id INTEGER NOT NULL REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL DEFAULT 'CHAT',
+    raw_text TEXT,
+    processed_topics JSONB,
+    keywords JSONB,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_sources_center ON content_sources(coaching_center_id);
+CREATE INDEX IF NOT EXISTS idx_content_sources_teacher ON content_sources(teacher_id);
+
+CREATE TABLE IF NOT EXISTS topics (
+    id SERIAL PRIMARY KEY,
+    coaching_center_id INTEGER REFERENCES coaching_centers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    usage_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(coaching_center_id, normalized_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_topics_center ON topics(coaching_center_id);
+
 CREATE TABLE IF NOT EXISTS question_options (
     id SERIAL PRIMARY KEY,
     question_id INTEGER NOT NULL,
@@ -424,6 +453,9 @@ ALTER TABLE questions
 ADD COLUMN IF NOT EXISTS ai_generation_id INTEGER REFERENCES ai_generations(id) ON DELETE SET NULL;
 
 ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL;
+
+ALTER TABLE questions
 ADD COLUMN IF NOT EXISTS subject_id INTEGER REFERENCES subjects(id);
 
 ALTER TABLE questions
@@ -431,6 +463,9 @@ ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id);
 
 ALTER TABLE questions
 ADD COLUMN IF NOT EXISTS is_from_bank BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0;
 
 ALTER TABLE questions
 ADD COLUMN IF NOT EXISTS difficulty_rating TEXT DEFAULT 'MEDIUM';
@@ -446,6 +481,7 @@ ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_questions_coaching ON questions(coaching_center_id);
 CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id);
+CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions(topic_id);
 
 -- Updated tests table for AI Test Studio
 ALTER TABLE tests
