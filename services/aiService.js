@@ -10,6 +10,22 @@ class AiService {
     this.retryDelays = [2000, 5000, 10000]; // 2s, 5s, 10s
   }
 
+  getGeminiModelCandidates() {
+    const configuredModels = String(process.env.GEMINI_MODEL || '')
+      .split(',')
+      .map((model) => model.trim())
+      .filter(Boolean);
+
+    const defaultModels = [
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-flash-latest',
+      'gemini-1.5-flash',
+    ];
+
+    return [...new Set([...configuredModels, ...defaultModels])];
+  }
+
   /**
    * Generate MCQ questions using AI
    * Includes retry logic with exponential backoff
@@ -100,47 +116,75 @@ class AiService {
       return this.generateMockQuestions(numQuestions);
     }
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.4,
-            responseMimeType: 'application/json',
+    const candidateModels = this.getGeminiModelCandidates();
+    let lastError = null;
+
+    for (const model of candidateModels) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        }),
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: prompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.4,
+              responseMimeType: 'application/json',
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const canTryNextModel =
+          response.status === 404 || /NOT_FOUND|not found/i.test(errorText);
+
+        if (canTryNextModel) {
+          console.warn(
+            `Gemini model unavailable: ${model}. Trying next candidate model.`
+          );
+          lastError = new Error(
+            `Gemini API error (${response.status}) with model ${model}: ${errorText}`
+          );
+          continue;
+        }
+
+        throw new Error(
+          `Gemini API error (${response.status}) with model ${model}: ${errorText}`
+        );
       }
-    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        throw new Error(`Gemini returned an empty response for model ${model}`);
+      }
+
+      const parsed = this.parseGeminiResponse(text);
+
+      if (!Array.isArray(parsed)) {
+        throw new Error('Gemini response must be a JSON array of questions');
+      }
+
+      return parsed;
     }
 
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) {
-      throw new Error('Gemini returned an empty response');
+    if (lastError) {
+      throw new Error(
+        `No compatible Gemini model found. Tried: ${candidateModels.join(', ')}. Last error: ${lastError.message}`
+      );
     }
 
-    const parsed = this.parseGeminiResponse(text);
-
-    if (!Array.isArray(parsed)) {
-      throw new Error('Gemini response must be a JSON array of questions');
-    }
-
-    return parsed;
+    throw new Error('No Gemini model candidates were configured');
   }
 
   /**

@@ -162,6 +162,10 @@ The database schema includes the following main entities:
 - `R2_SECRET_KEY`: Cloudflare R2 secret key
 - `R2_BUCKET`: Cloudflare R2 bucket name
 - `R2_PUBLIC_URL`: Public base URL for stored documents
+- `REVENUECAT_API_KEY`: Public SDK key for RevenueCat
+- `REVENUECAT_WEBHOOK_SECRET`: RevenueCat webhook verification secret
+- `GEMINI_API_KEY`: API key for Gemini question generation
+- `GEMINI_MODEL`: Optional comma-separated model preference order for Gemini generateContent
 - `PORT`: Port number for the server
 - `NODE_ENV`: Environment mode (development/production)
 
