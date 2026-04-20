@@ -106,7 +106,12 @@ const getCoachingStudentWiseRevenueReport = async (req, res) => {
   try {
     const coachingId = req.coachingId || req.params.coachingId;
     const segmentBy = req.query.segmentBy === 'batch' ? 'batch' : 'none';
-    const report = await feeService.getCoachingStudentWiseRevenueReport(coachingId, segmentBy);
+    const report = await feeService.getCoachingStudentWiseRevenueReport(coachingId, {
+      segmentBy,
+      fromDate: req.query.fromDate,
+      toDate: req.query.toDate,
+      batchId: req.query.batchId
+    });
     return res.status(HTTP_STATUS.SUCCESS).json({ report });
   } catch (error) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({

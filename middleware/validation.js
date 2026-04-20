@@ -1,5 +1,26 @@
-const { body, validationResult } = require('express-validator');
+const { body, query, validationResult } = require('express-validator');
 const { HTTP_STATUS } = require('../config/constants');
+
+const parseDmyDate = (value) => {
+  if (typeof value !== 'string') return null;
+  const parts = value.trim().split('-');
+  if (parts.length !== 3) return null;
+
+  const [dayText, monthText, yearText] = parts;
+  const day = Number(dayText);
+  const month = Number(monthText);
+  const parsedYear = Number(yearText);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(parsedYear)) return null;
+
+  const year = yearText.length === 2 ? 2000 + parsedYear : parsedYear;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isValid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  return isValid ? date : null;
+};
 
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -227,6 +248,45 @@ const validateUpdateCoachingDetails = [
   handleValidationErrors
 ];
 
+const validateRevenueReportQuery = [
+  query('segmentBy')
+    .optional()
+    .isIn(['none', 'batch'])
+    .withMessage('segmentBy must be either none or batch'),
+  query('fromDate')
+    .optional()
+    .custom((value) => {
+      if (!parseDmyDate(value)) {
+        throw new Error('fromDate must be in dd-mm-yy or dd-mm-yyyy format');
+      }
+      return true;
+    }),
+  query('toDate')
+    .optional()
+    .custom((value) => {
+      if (!parseDmyDate(value)) {
+        throw new Error('toDate must be in dd-mm-yy or dd-mm-yyyy format');
+      }
+      return true;
+    }),
+  query('batchId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('batchId must be a valid positive integer'),
+  query().custom((_, { req }) => {
+    if (!req.query.fromDate || !req.query.toDate) return true;
+    const fromDate = parseDmyDate(req.query.fromDate);
+    const toDate = parseDmyDate(req.query.toDate);
+    if (!fromDate || !toDate) return true;
+
+    if (fromDate.getTime() > toDate.getTime()) {
+      throw new Error('fromDate must be less than or equal to toDate');
+    }
+    return true;
+  }),
+  handleValidationErrors
+];
+
 module.exports = {
   validateUserRegistration,
   validateUserLogin,
@@ -252,5 +312,6 @@ module.exports = {
   validateUploadTeacherDocument,
   validateUpdateTeacherDocument,
   validateUpdateCoachingPhone,
-  validateUpdateCoachingDetails
+  validateUpdateCoachingDetails,
+  validateRevenueReportQuery
 };

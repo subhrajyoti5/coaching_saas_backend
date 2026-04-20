@@ -16,7 +16,7 @@ const {
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOrOwner, studentOrOwner, studentOnly } = require('../middleware/roles');
 const { validateCoachingAccess, validateStudentAccess } = require('../middleware/coachingIsolation');
-const { validateCreateFee } = require('../middleware/validation');
+const { validateCreateFee, validateRevenueReportQuery } = require('../middleware/validation');
 
 // Protected routes
 // Create a new fee record (Owner and Teacher can access)
@@ -35,7 +35,7 @@ router.get('/student/:studentId', authenticateToken, teacherOrOwner, validateStu
 router.get('/coaching/:coachingId/revenue', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingRevenue);
 
 // Get student-wise revenue status for a coaching center (Owner and Teacher can access)
-router.get('/coaching/:coachingId/revenue-student-wise', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingStudentWiseRevenueReport);
+router.get('/coaching/:coachingId/revenue-student-wise', authenticateToken, teacherOrOwner, validateCoachingAccess, validateRevenueReportQuery, getCoachingStudentWiseRevenueReport);
 
 // Get fee records for a coaching center (Owner and Teacher can access)
 router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingFees);

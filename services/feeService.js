@@ -228,16 +228,58 @@ const getCoachingRevenue = async (coachingId) => {
   }));
 };
 
-const getCoachingStudentWiseRevenueReport = async (coachingId, segmentBy = 'none') => {
-  const numericCoachingId = Number(coachingId);
+const parseDmyDate = (value, endOfDay = false) => {
+  if (!value || typeof value !== 'string') return null;
+  const parts = value.trim().split('-');
+  if (parts.length !== 3) return null;
 
-  const [fees, approvedClaims] = await Promise.all([
+  const day = Number(parts[0]);
+  const month = Number(parts[1]);
+  const parsedYear = Number(parts[2]);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(parsedYear)) return null;
+
+  const year = parts[2].length === 2 ? 2000 + parsedYear : parsedYear;
+  const date = new Date(Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
+  const isValid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+  return isValid ? date : null;
+};
+
+const getCoachingStudentWiseRevenueReport = async (coachingId, options = {}) => {
+  const numericCoachingId = Number(coachingId);
+  const segmentBy = options.segmentBy === 'batch' ? 'batch' : 'none';
+  const numericBatchId = options.batchId ? Number(options.batchId) : null;
+  const fromDate = parseDmyDate(options.fromDate, false);
+  const toDate = parseDmyDate(options.toDate, true);
+
+  const claimDateFilter = {};
+  if (fromDate) claimDateFilter.gte = fromDate;
+  if (toDate) claimDateFilter.lte = toDate;
+
+  const feeWhere = {
+    student: {
+      coaching_center_id: numericCoachingId
+    },
+    ...(numericBatchId ? { batch_id: numericBatchId } : {})
+  };
+
+  const claimWhere = {
+    coaching_center_id: numericCoachingId,
+    status: 'APPROVED',
+    ...(numericBatchId ? { batch_id: numericBatchId } : {}),
+    ...(Object.keys(claimDateFilter).length ? { created_at: claimDateFilter } : {})
+  };
+
+  const batchWhere = {
+    coaching_center_id: numericCoachingId,
+    ...(numericBatchId ? { id: numericBatchId } : {})
+  };
+
+  const [fees, approvedClaims, batches, memberships] = await Promise.all([
     prisma.fee.findMany({
-      where: {
-        student: {
-          coaching_center_id: numericCoachingId
-        }
-      },
+      where: feeWhere,
       include: {
         student: {
           select: { id: true, name: true }
@@ -251,14 +293,28 @@ const getCoachingStudentWiseRevenueReport = async (coachingId, segmentBy = 'none
       }
     }),
     prisma.paymentClaim.findMany({
-      where: {
-        coaching_center_id: numericCoachingId,
-        status: 'APPROVED'
-      },
+      where: claimWhere,
       select: {
         student_id: true,
         batch_id: true,
         amount: true
+      }
+    }),
+    prisma.batch.findMany({
+      where: batchWhere,
+      select: {
+        id: true,
+        name: true,
+        price: true
+      }
+    }),
+    prisma.batchStudent.findMany({
+      where: {
+        batch: batchWhere
+      },
+      select: {
+        batch_id: true,
+        student_id: true
       }
     })
   ]);
@@ -420,11 +476,75 @@ const getCoachingStudentWiseRevenueReport = async (coachingId, segmentBy = 'none
     }
   );
 
+  const batchStudentSets = new Map();
+  const centerStudentSet = new Set();
+  for (const membership of memberships) {
+    const batchId = Number(membership.batch_id);
+    const studentId = Number(membership.student_id);
+    centerStudentSet.add(studentId);
+    if (!batchStudentSets.has(batchId)) {
+      batchStudentSets.set(batchId, new Set());
+    }
+    batchStudentSets.get(batchId).add(studentId);
+  }
+
+  const batchPaidStudentSets = new Map();
+  const centerPaidStudentSet = new Set();
+  const batchRevenueMap = new Map();
+  for (const claim of approvedClaims) {
+    const batchId = claim.batch_id == null ? null : Number(claim.batch_id);
+    const studentId = Number(claim.student_id);
+    const amount = Number(claim.amount) || 0;
+
+    centerPaidStudentSet.add(studentId);
+    if (batchId != null) {
+      if (!batchPaidStudentSets.has(batchId)) {
+        batchPaidStudentSets.set(batchId, new Set());
+      }
+      batchPaidStudentSets.get(batchId).add(studentId);
+      batchRevenueMap.set(batchId, (batchRevenueMap.get(batchId) || 0) + amount);
+    }
+  }
+
+  const totalRevenue = approvedClaims.reduce((sum, claim) => sum + (Number(claim.amount) || 0), 0);
+
+  const coachingSummary = {
+    noOfBatch: batches.length,
+    noOfStudent: centerStudentSet.size,
+    noOfStudentPaid: centerPaidStudentSet.size,
+    totalRevenue
+  };
+
+  const batchWiseRevenue = batches
+    .map((batch) => {
+      const batchId = Number(batch.id);
+      const studentSet = batchStudentSets.get(batchId) || new Set();
+      const paidStudentSet = batchPaidStudentSets.get(batchId) || new Set();
+
+      return {
+        batchId,
+        batchName: batch.name || 'Unknown',
+        batchPrice: Number(batch.price) || 0,
+        noOfStudent: studentSet.size,
+        noOfStudentPaid: paidStudentSet.size,
+        revenue: batchRevenueMap.get(batchId) || 0
+      };
+    })
+    .sort((a, b) => a.batchName.localeCompare(b.batchName));
+
   return {
     summary,
     students,
     segments: {
       byBatch: segmentBy === 'batch' ? byBatch : []
+    },
+    coachingSummary,
+    batchWiseRevenue,
+    filtersApplied: {
+      segmentBy,
+      fromDate: options.fromDate || null,
+      toDate: options.toDate || null,
+      batchId: numericBatchId || null
     }
   };
 };
