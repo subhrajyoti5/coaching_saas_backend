@@ -18,12 +18,17 @@ const {
   getStudentLeaderboard,
   deleteTest,
   publishTest,
-  getCoachingStudentPerformance
+  getCoachingStudentPerformance,
+  uploadQuestionPaper,
+  submitAnswerSheet,
+  getTestSubmissions,
+  reviewTestAttempt
 } = require('../controllers/testController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly, teacherOnly, teacherOrOwner, studentOrOwner, studentOnly } = require('../middleware/roles');
 const { validateCoachingAccess, validateStudentAccess } = require('../middleware/coachingIsolation');
 const { validateCreateTest, validateCreateQuestion } = require('../middleware/validation');
+const { uploadTeacherDocument } = require('../middleware/upload');
 
 // Protected routes
 // Create a new test (Owner and Teacher can access)
@@ -79,5 +84,19 @@ router.patch('/:testId/publish', authenticateToken, teacherOrOwner, publishTest)
 
 // Soft delete a test
 router.delete('/:testId', authenticateToken, teacherOrOwner, deleteTest);
+
+// ============ PAPER-BASED TEST ROUTES ============
+
+// Upload question paper for a test (Teacher/Owner only)
+router.post('/upload-question-paper', authenticateToken, teacherOrOwner, uploadTeacherDocument, uploadQuestionPaper);
+
+// Submit answer sheet for a test (Student only)
+router.post('/submit-answer-sheet', authenticateToken, studentOnly, uploadTeacherDocument, submitAnswerSheet);
+
+// Get all submissions for a test (Teacher/Owner only)
+router.get('/:testId/submissions', authenticateToken, teacherOrOwner, getTestSubmissions);
+
+// Review a test attempt (Teacher/Owner only)
+router.patch('/attempts/:attemptId/review', authenticateToken, teacherOrOwner, reviewTestAttempt);
 
 module.exports = router;

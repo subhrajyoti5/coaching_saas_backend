@@ -1,6 +1,10 @@
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
+const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { createR2Client, getR2PublicUrl } = require('../utils/r2');
+const crypto = require('crypto');
+const path = require('path');
 
 const toNumber = (value, name) => {
   const parsed = Number(value);
@@ -43,12 +47,17 @@ const mapTestForClient = (test) => {
   return {
     id: test.id,
     title: test.title,
+    mode: test.mode,
     coachingId: test.coaching_center_id,
     batchId: test.test_batches?.[0]?.batch_id || null,
     batchIds: (test.test_batches || []).map((tb) => tb.batch_id).filter(Boolean),
     duration: test.duration_minutes,
     startDate: test.start_time,
     endDate: test.end_time,
+    answerSheetDeadline: test.answer_sheet_deadline,
+    questionPaperUrl: test.question_paper_url,
+    questionPaperFileKey: test.question_paper_file_key,
+    questionPaperType: test.question_paper_type,
     maxScore,
     isPublished: Boolean(test.results_published),
     createdAt: test.created_at,
@@ -151,7 +160,19 @@ const getAuthorizedTest = async (testId, requester) => {
 };
 
 const createTest = async (testData, requester) => {
-  const { title, coachingId, batchIds, duration, startDate, endDate } = testData;
+  const {
+    title,
+    coachingId,
+    batchIds,
+    duration,
+    startDate,
+    endDate,
+    mode,
+    answerSheetDeadline,
+    questionPaperUrl,
+    questionPaperFileKey,
+    questionPaperType
+  } = testData;
 
   const numericCoachingId = toNumber(coachingId, 'coachingId');
   const uniqueBatchIds = [...new Set((Array.isArray(batchIds) ? batchIds : []).map((id) => Number(id)).filter(Boolean))];
@@ -167,9 +188,16 @@ const createTest = async (testData, requester) => {
       data: {
         title: String(title || '').trim(),
         coaching_center_id: numericCoachingId,
-        duration_minutes: Number(duration),
-        start_time: new Date(startDate),
-        end_time: new Date(endDate),
+        mode: String(mode || 'PRACTICE').toUpperCase(),
+        duration_minutes: duration !== undefined && duration !== null && duration !== ''
+          ? Number(duration)
+          : null,
+        start_time: startDate ? new Date(startDate) : null,
+        end_time: endDate ? new Date(endDate) : (answerSheetDeadline ? new Date(answerSheetDeadline) : null),
+        answer_sheet_deadline: answerSheetDeadline ? new Date(answerSheetDeadline) : null,
+        question_paper_url: questionPaperUrl || null,
+        question_paper_file_key: questionPaperFileKey || null,
+        question_paper_type: questionPaperType || null,
         created_by: Number(requester.userId),
         results_published: false
       }
@@ -628,6 +656,302 @@ const getCoachingStudentPerformance = async (coachingId) => {
   });
 };
 
+// ============ PAPER-BASED TEST FUNCTIONS ============
+
+const uploadQuestionPaper = async (testId, file, user) => {
+  try {
+    const test = await getTestById(testId, user);
+    if (!test) {
+      throw new Error('Test not found');
+    }
+
+    // Verify teacher is creator
+    if (test.created_by !== user.userId) {
+      throw new Error('You do not have permission to upload question paper for this test');
+    }
+
+    // Generate storage key
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    const storageKey = `tests/${testId}/question_paper/${crypto.randomBytes(8).toString('hex')}${fileExtension}`;
+
+    // Upload to R2
+    const client = createR2Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME || 'coaching',
+        Key: storageKey,
+        Body: file.buffer,
+        ContentType: file.mimetype
+      })
+    );
+
+    // Get public URL
+    const fileUrl = getR2PublicUrl(storageKey);
+
+    // Update Test record
+    const updatedTest = await prisma.test.update({
+      where: { id: Number(testId) },
+      data: {
+        question_paper_url: fileUrl,
+        question_paper_file_key: storageKey,
+        question_paper_type: fileExtension.replace('.', '')
+      },
+      include: {
+        test_batches: {
+          include: { batch: true }
+        }
+      }
+    });
+
+    // Audit log
+    audit({
+      action: 'UPLOAD_QUESTION_PAPER',
+      userId: user.userId,
+      resourceType: 'Test',
+      resourceId: testId,
+      details: { storageKey, fileSize: file.size }
+    });
+
+    return mapTestForClient(updatedTest);
+  } catch (error) {
+    throw new Error(`Failed to upload question paper: ${error.message}`);
+  }
+};
+
+const submitAnswerSheet = async (testId, file, user) => {
+  try {
+    const test = await prisma.test.findUnique({
+      where: { id: Number(testId) },
+      include: { test_batches: true }
+    });
+
+    if (!test) {
+      throw new Error('Test not found');
+    }
+
+    // Verify student is in a batch for this test
+    const batchIds = test.test_batches.map(tb => tb.batch_id);
+    const studentInBatch = await prisma.batchStudent.findFirst({
+      where: {
+        student_id: Number(user.userId),
+        batch_id: { in: batchIds }
+      }
+    });
+
+    if (!studentInBatch) {
+      throw new Error('You are not enrolled in any batch for this test');
+    }
+
+    // Get or create attempt
+    let attempt = await prisma.testAttempt.findFirst({
+      where: {
+        test_id: Number(testId),
+        student_id: Number(user.userId)
+      }
+    });
+
+    if (!attempt) {
+      // Create new attempt
+      attempt = await prisma.testAttempt.create({
+        data: {
+          test_id: Number(testId),
+          batch_id: studentInBatch.batch_id,
+          student_id: Number(user.userId),
+          coaching_center_id: test.coaching_center_id,
+          status: 'NOT_STARTED',
+          started_at: new Date()
+        }
+      });
+    }
+
+    // Check deadline
+    const now = new Date();
+    const isLate = test.answer_sheet_deadline && now > test.answer_sheet_deadline;
+
+    // Generate storage key
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    const storageKey = `tests/${testId}/answer_sheets/${attempt.id}/${crypto.randomBytes(8).toString('hex')}${fileExtension}`;
+
+    // Upload to R2
+    const client = createR2Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME || 'coaching',
+        Key: storageKey,
+        Body: file.buffer,
+        ContentType: file.mimetype
+      })
+    );
+
+    // Get public URL
+    const fileUrl = getR2PublicUrl(storageKey);
+
+    // Update attempt
+    const updatedAttempt = await prisma.testAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        answer_sheet_url: fileUrl,
+        answer_sheet_file_key: storageKey,
+        answer_sheet_type: fileExtension.replace('.', ''),
+        status: isLate ? 'LATE' : 'SUBMITTED',
+        submitted_at: now,
+        submission_count: { increment: 1 }
+      },
+      include: {
+        test: true,
+        student: true,
+        batch: true
+      }
+    });
+
+    // Audit log
+    audit({
+      action: 'SUBMIT_ANSWER_SHEET',
+      userId: user.userId,
+      resourceType: 'TestAttempt',
+      resourceId: attempt.id,
+      details: { testId, isLate, storageKey, fileSize: file.size }
+    });
+
+    return mapAttemptForClient(updatedAttempt);
+  } catch (error) {
+    throw new Error(`Failed to submit answer sheet: ${error.message}`);
+  }
+};
+
+const getTestSubmissions = async (testId, user) => {
+  try {
+    const test = await getTestById(testId, user);
+    if (!test) {
+      throw new Error('Test not found');
+    }
+
+    // Verify teacher is creator
+    if (test.created_by !== user.userId) {
+      throw new Error('You do not have permission to view submissions for this test');
+    }
+
+    const attempts = await prisma.testAttempt.findMany({
+      where: {
+        test_id: Number(testId)
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        batch: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        reviewer: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: { submitted_at: 'desc' }
+    });
+
+    return attempts.map(attempt => ({
+      id: attempt.id,
+      studentId: attempt.student_id,
+      studentName: attempt.student?.name,
+      studentEmail: attempt.student?.email,
+      batchId: attempt.batch_id,
+      batchName: attempt.batch?.name,
+      status: attempt.status,
+      submittedAt: attempt.submitted_at,
+      answerSheetUrl: attempt.answer_sheet_url,
+      marksAwarded: attempt.marks_awarded,
+      feedback: attempt.feedback,
+      reviewedBy: attempt.reviewer?.name,
+      reviewedAt: attempt.reviewed_at,
+      createdAt: attempt.created_at
+    }));
+  } catch (error) {
+    throw new Error(`Failed to fetch test submissions: ${error.message}`);
+  }
+};
+
+const reviewTestAttempt = async (attemptId, marksAwarded, feedback, user) => {
+  try {
+    const attempt = await prisma.testAttempt.findUnique({
+      where: { id: Number(attemptId) },
+      include: { test: true }
+    });
+
+    if (!attempt) {
+      throw new Error('Test attempt not found');
+    }
+
+    // Verify teacher owns the test
+    if (attempt.test.created_by !== user.userId) {
+      throw new Error('You do not have permission to review this attempt');
+    }
+
+    // Validate marks
+    if (typeof marksAwarded !== 'number' || marksAwarded < 0) {
+      throw new Error('Marks awarded must be a non-negative number');
+    }
+
+    // Update attempt
+    const updatedAttempt = await prisma.testAttempt.update({
+      where: { id: Number(attemptId) },
+      data: {
+        marks_awarded: marksAwarded,
+        feedback: feedback || null,
+        reviewed_by: Number(user.userId),
+        reviewed_at: new Date()
+      },
+      include: {
+        student: true,
+        batch: true,
+        reviewer: true,
+        test: true
+      }
+    });
+
+    // Audit log
+    audit({
+      action: 'REVIEW_TEST_ATTEMPT',
+      userId: user.userId,
+      resourceType: 'TestAttempt',
+      resourceId: attemptId,
+      details: { testId: attempt.test_id, marksAwarded, hasFeeback: Boolean(feedback) }
+    });
+
+    return mapAttemptForClient(updatedAttempt);
+  } catch (error) {
+    throw new Error(`Failed to review test attempt: ${error.message}`);
+  }
+};
+
+const mapAttemptForClient = (attempt) => ({
+  id: attempt.id,
+  testId: attempt.test_id,
+  studentId: attempt.student_id,
+  studentName: attempt.student?.name,
+  batchId: attempt.batch_id,
+  batchName: attempt.batch?.name,
+  status: attempt.status,
+  answerSheetUrl: attempt.answer_sheet_url,
+  answerSheetType: attempt.answer_sheet_type,
+  marksAwarded: attempt.marks_awarded,
+  feedback: attempt.feedback,
+  reviewedBy: attempt.reviewer?.name,
+  reviewedAt: attempt.reviewed_at,
+  submittedAt: attempt.submitted_at,
+  startedAt: attempt.started_at,
+  createdAt: attempt.created_at
+});
+
 module.exports = {
   createTest,
   getTestById,
@@ -646,5 +970,9 @@ module.exports = {
   getStudentLeaderboard,
   deactivateTest,
   publishTest,
-  getCoachingStudentPerformance
+  getCoachingStudentPerformance,
+  uploadQuestionPaper,
+  submitAnswerSheet,
+  getTestSubmissions,
+  reviewTestAttempt
 };

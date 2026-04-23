@@ -255,6 +255,120 @@ const getCoachingStudentPerformance = async (req, res) => {
   }
 };
 
+// ============ PAPER-BASED TEST FUNCTIONS ============
+
+const uploadQuestionPaper = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Question paper file is required'
+      });
+    }
+
+    const { testId } = req.body;
+    if (!testId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Test ID is required'
+      });
+    }
+
+    const result = await testService.uploadQuestionPaper(
+      testId,
+      req.file,
+      req.user
+    );
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: SUCCESS_MESSAGES.OPERATION_SUCCESS,
+      test: result
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to upload question paper',
+      message: error.message
+    });
+  }
+};
+
+const submitAnswerSheet = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Answer sheet file is required'
+      });
+    }
+
+    const { testId } = req.body;
+    if (!testId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Test ID is required'
+      });
+    }
+
+    const result = await testService.submitAnswerSheet(
+      testId,
+      req.file,
+      req.user
+    );
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'Answer sheet submitted successfully',
+      attempt: result
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to submit answer sheet',
+      message: error.message
+    });
+  }
+};
+
+const getTestSubmissions = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const submissions = await testService.getTestSubmissions(testId, req.user);
+    
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      submissions
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to fetch test submissions',
+      message: error.message
+    });
+  }
+};
+
+const reviewTestAttempt = async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+    const { marksAwarded, feedback } = req.body;
+
+    if (marksAwarded === undefined || marksAwarded === null) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        error: 'Marks awarded is required'
+      });
+    }
+
+    const result = await testService.reviewTestAttempt(
+      attemptId,
+      marksAwarded,
+      feedback,
+      req.user
+    );
+
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'Test attempt reviewed successfully',
+      attempt: result
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to review test attempt',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createTest,
   getTest,
@@ -273,5 +387,9 @@ module.exports = {
   getStudentLeaderboard,
   deleteTest,
   publishTest,
-  getCoachingStudentPerformance
+  getCoachingStudentPerformance,
+  uploadQuestionPaper,
+  submitAnswerSheet,
+  getTestSubmissions,
+  reviewTestAttempt
 };
