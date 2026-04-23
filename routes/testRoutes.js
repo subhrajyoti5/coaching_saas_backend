@@ -88,10 +88,10 @@ router.delete('/:testId', authenticateToken, teacherOrOwner, deleteTest);
 // ============ PAPER-BASED TEST ROUTES ============
 
 // Upload question paper for a test (Teacher/Owner only)
-router.post('/upload-question-paper', authenticateToken, teacherOrOwner, uploadTeacherDocument, uploadQuestionPaper);
+router.post('/upload-question-paper', authenticateToken, teacherOrOwner, uploadTeacherDocument.single('file'), uploadQuestionPaper);
 
 // Submit answer sheet for a test (Student only)
-router.post('/submit-answer-sheet', authenticateToken, studentOnly, uploadTeacherDocument, submitAnswerSheet);
+router.post('/submit-answer-sheet', authenticateToken, studentOnly, uploadTeacherDocument.single('file'), submitAnswerSheet);
 
 // Get all submissions for a test (Teacher/Owner only)
 router.get('/:testId/submissions', authenticateToken, teacherOrOwner, getTestSubmissions);
