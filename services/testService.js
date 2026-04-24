@@ -188,6 +188,7 @@ const createTest = async (testData, requester) => {
       data: {
         title: String(title || '').trim(),
         coaching_center_id: numericCoachingId,
+        batch_id: uniqueBatchIds.length > 0 ? uniqueBatchIds[0] : null,
         mode: String(mode || 'PRACTICE').toUpperCase(),
         duration_minutes: duration !== undefined && duration !== null && duration !== ''
           ? Number(duration)

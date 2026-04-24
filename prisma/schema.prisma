@@ -462,7 +462,7 @@ model QuestionOption {
 model Test {
   id                     Int       @id @default(autoincrement())
   coaching_center_id     Int
-  batch_id               Int
+  batch_id               Int?
   subject_id             Int?
   created_by             Int
   title                  String
@@ -485,7 +485,7 @@ model Test {
   updated_at             DateTime  @updatedAt @db.Timestamp(6)
 
   coaching_center CoachingCenter @relation(fields: [coaching_center_id], references: [id], onDelete: Cascade)
-  batch           Batch          @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  batch           Batch?         @relation(fields: [batch_id], references: [id], onDelete: Cascade)
   subject         Subject?       @relation("TestSubject", fields: [subject_id], references: [id])
   creator         User           @relation("TestCreatedBy", fields: [created_by], references: [id])
   test_questions  TestQuestion[]
