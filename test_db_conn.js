@@ -19,6 +19,7 @@ async function run() {
         'postgresql://subhra:StrongPass123@localhost:5432/postgres',
         'postgresql://SUBHRA:StrongPass123@localhost:5432/postgres',
     ];
+    
     for (const url of urls) {
         if (await testConnection(url)) {
             process.exit(0);
