@@ -48,6 +48,21 @@ const verifyPayment = async (req, res) => {
     );
 
     if (isValid) {
+      // Lowercase email to ensure it matches exactly with Google Login
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Check if user already exists to avoid duplicates
+      const existingUser = await prisma.user.findFirst({
+        where: { email: normalizedEmail }
+      });
+
+      if (existingUser) {
+        return res.status(HTTP_STATUS.SUCCESS).json({ 
+          message: 'Payment verified and account already active',
+          data: { user: existingUser }
+        });
+      }
+
       // Create user and coaching center in a transaction
       const result = await prisma.$transaction(async (tx) => {
         // 1. Create Coaching Center
@@ -62,7 +77,7 @@ const verifyPayment = async (req, res) => {
         const user = await tx.user.create({
           data: {
             name: coachingName, // Using coaching name as user name for now
-            email: email,
+            email: normalizedEmail,
             phone: mobileNumber,
             role: ROLES.OWNER,
             coaching_center_id: coachingCenter.id,

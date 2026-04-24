@@ -108,7 +108,7 @@ const loginWithGoogle = async (token) => {
     console.log('🆔 [Google Auth] Token audience (aud):', payload.aud);
     console.log('🔑 [Google Auth] Allowed client IDs:', allowedAudiences.length > 0 ? allowedAudiences.join(', ') : '(not configured)');
 
-    const googleEmail = payload.email;
+    const googleEmail = payload.email.toLowerCase().trim();
 
     user = await prisma.user.findFirst({
       where: {
