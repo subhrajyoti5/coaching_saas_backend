@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const {
-    login, googleLogin, selectCoaching, refresh, logout, getProfile, getCoachingCenters, getGoogleConfig
+    login, googleLogin, selectCoaching, refresh, logout, getProfile, getCoachingCenters, getGoogleConfig, sendOtp, verifyOtp
 } = require('../controllers/authController');
 const { validateUserLogin } = require('../middleware/validation');
 const { authenticateToken } = require('../middleware/auth');
@@ -19,6 +19,8 @@ const loginLimiter = rateLimit({
 // Public routes
 router.get('/config/google', getGoogleConfig);
 router.post('/google-login', loginLimiter, googleLogin);
+router.post('/send-otp', sendOtp);
+router.post('/verify-otp', verifyOtp);
 router.post('/refresh', refresh);
 router.post('/logout', logout);
 

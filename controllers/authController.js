@@ -1,5 +1,10 @@
 const authService = require('../services/authService');
 const { HTTP_STATUS, SUCCESS_MESSAGES } = require('../config/constants');
+const { sendOtpEmail } = require('../services/emailService');
+
+// In-memory OTP store (for development/MVP). 
+// Key: email, Value: { otp, expiresAt }
+const otpStore = new Map();
 
 /**
  * SIGN IN WITH GOOGLE
@@ -140,6 +145,73 @@ const getGoogleConfig = async (req, res) => {
   }
 };
 
+/**
+ * SEND OTP
+ */
+const sendOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Email is required' });
+    }
+
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store OTP with 10-minute expiry
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    otpStore.set(email, { otp, expiresAt });
+
+    // Send email
+    await sendOtpEmail(email, otp);
+
+    return res.status(HTTP_STATUS.SUCCESS).json({ message: 'OTP sent successfully' });
+  } catch (error) {
+    console.error('Send OTP error:', error.message);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to send OTP',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * VERIFY OTP
+ */
+const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Email and OTP are required' });
+    }
+
+    const record = otpStore.get(email);
+    if (!record) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'No OTP found for this email' });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      otpStore.delete(email);
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'OTP has expired' });
+    }
+
+    if (record.otp !== otp) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid OTP' });
+    }
+
+    // OTP verified successfully
+    otpStore.delete(email);
+    
+    return res.status(HTTP_STATUS.SUCCESS).json({ message: 'OTP verified successfully' });
+  } catch (error) {
+    console.error('Verify OTP error:', error.message);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to verify OTP',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   googleLogin,
   selectCoaching,
@@ -147,5 +219,7 @@ module.exports = {
   logout,
   getProfile,
   getCoachingCenters,
-  getGoogleConfig
+  getGoogleConfig,
+  sendOtp,
+  verifyOtp
 };
