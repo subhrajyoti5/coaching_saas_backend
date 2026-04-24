@@ -124,10 +124,40 @@ const validateCreateTest = [
   body('coachingId').isInt({ min: 1 }).withMessage('Valid coaching ID is required'),
   body('batchIds').isArray({ min: 1 }).withMessage('At least one batch must be selected'),
   body('batchIds.*').isInt({ min: 1 }).withMessage('Each batchId must be a valid ID'),
-  body('duration').isInt({ min: 1 }).withMessage('Duration must be a positive integer'),
-  body('startDate').isISO8601().withMessage('Start date must be valid'),
-  body('endDate').isISO8601().withMessage('End date must be valid'),
-  body('maxScore').isFloat({ min: 0 }).withMessage('Max score must be non-negative'),
+  body('mode').isIn(['PAPER', 'PRACTICE']).withMessage('Mode must be PAPER or PRACTICE'),
+  body().custom((value) => {
+    const mode = value?.mode || 'PRACTICE';
+    
+    if (mode === 'PAPER') {
+      // For PAPER tests: need answerSheetDeadline, not duration/maxScore
+      if (!value?.endDate && !value?.answerSheetDeadline) {
+        throw new Error('Answer sheet deadline (endDate or answerSheetDeadline) is required for paper tests');
+      }
+      if (value?.startDate && !new Date(value.startDate).getTime()) {
+        throw new Error('Start date must be a valid ISO date');
+      }
+      const deadlineDate = value?.endDate || value?.answerSheetDeadline;
+      if (deadlineDate && !new Date(deadlineDate).getTime()) {
+        throw new Error('Answer sheet deadline must be a valid ISO date');
+      }
+    } else {
+      // For PRACTICE tests: need duration, maxScore, endDate
+      if (!Number.isInteger(parseInt(value?.duration)) || parseInt(value?.duration) < 1) {
+        throw new Error('Duration must be a positive integer');
+      }
+      if (!value?.startDate || !new Date(value.startDate).getTime()) {
+        throw new Error('Start date must be a valid ISO date');
+      }
+      if (!value?.endDate || !new Date(value.endDate).getTime()) {
+        throw new Error('End date must be a valid ISO date');
+      }
+      const maxScore = parseFloat(value?.maxScore);
+      if (isNaN(maxScore) || maxScore < 0) {
+        throw new Error('Max score must be a non-negative number');
+      }
+    }
+    return true;
+  }),
   handleValidationErrors
 ];
 
