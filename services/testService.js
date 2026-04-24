@@ -661,6 +661,14 @@ const getCoachingStudentPerformance = async (coachingId) => {
 
 const uploadQuestionPaper = async (testId, file, user) => {
   try {
+    if (!file) {
+      throw new Error('File is required');
+    }
+
+    if (!file.buffer) {
+      throw new Error('File buffer is missing');
+    }
+
     const test = await getTestById(testId, user);
     if (!test) {
       throw new Error('Test not found');
@@ -675,6 +683,14 @@ const uploadQuestionPaper = async (testId, file, user) => {
     const fileExtension = path.extname(file.originalname).toLowerCase();
     const storageKey = `tests/${testId}/question_paper/${crypto.randomBytes(8).toString('hex')}${fileExtension}`;
 
+    console.log('[uploadQuestionPaper] Uploading to R2:', {
+      testId,
+      storageKey,
+      fileSize: file.size,
+      mimetype: file.mimetype,
+      bucket: process.env.R2_BUCKET_NAME || 'coaching'
+    });
+
     // Upload to R2
     const client = createR2Client();
     await client.send(
@@ -685,6 +701,8 @@ const uploadQuestionPaper = async (testId, file, user) => {
         ContentType: file.mimetype
       })
     );
+
+    console.log('[uploadQuestionPaper] R2 upload successful');
 
     // Get public URL
     const fileUrl = getR2PublicUrl(storageKey);
@@ -713,8 +731,10 @@ const uploadQuestionPaper = async (testId, file, user) => {
       details: { storageKey, fileSize: file.size }
     });
 
+    console.log('[uploadQuestionPaper] Test updated successfully');
     return mapTestForClient(updatedTest);
   } catch (error) {
+    console.error('[uploadQuestionPaper] Error:', error);
     throw new Error(`Failed to upload question paper: ${error.message}`);
   }
 };
