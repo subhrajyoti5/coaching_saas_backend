@@ -57,9 +57,17 @@ const verifyPayment = async (req, res) => {
       });
 
       if (existingUser) {
+        const updatedUser = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            subscription_status: SUBSCRIPTION_STATUS.ACTIVE,
+            plan_type: planName?.toLowerCase() || 'basic',
+            current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          }
+        });
         return res.status(HTTP_STATUS.SUCCESS).json({ 
-          message: 'Payment verified and account already active',
-          data: { user: existingUser }
+          message: 'Payment verified and subscription updated',
+          data: { user: updatedUser }
         });
       }
 
@@ -83,7 +91,8 @@ const verifyPayment = async (req, res) => {
             role: ROLES.OWNER,
             coaching_center_id: coachingCenter.id,
             subscription_status: SUBSCRIPTION_STATUS.ACTIVE,
-            plan_type: planName?.toLowerCase() || 'basic'
+            plan_type: planName?.toLowerCase() || 'basic',
+            current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
           }
         });
         console.log('User created successfully:', user.id);
