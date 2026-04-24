@@ -1,7 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 
-const allowedExtensions = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
+const allowedExtensions = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']);
 const maxFileSizeBytes = Number(process.env.DOCUMENT_MAX_FILE_SIZE_BYTES || (10 * 1024 * 1024) - 1);
 const storage = multer.memoryStorage();
 
@@ -17,7 +17,7 @@ const fileFilter = (req, file, cb) => {
     mimetype: file.mimetype,
     originalname: file.originalname
   });
-  return cb(new Error('Only PDF, JPG, and PNG files are allowed'));
+  return cb(new Error('Only PDF, JPG, JPEG, PNG, WEBP, HEIC, and HEIF files are allowed'));
 };
 
 const uploadTeacherDocument = multer({

@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 require('dotenv').config({ override: true });
 const { getFcmConfigStatus } = require('./services/notificationService');
 
@@ -77,6 +78,27 @@ app.use((req, res) => {
 
 // Global Error handling middleware
 app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        error: 'Upload too large',
+        message: 'File is larger than the allowed upload size limit'
+      });
+    }
+
+    return res.status(400).json({
+      error: 'Upload failed',
+      message: err.message || 'Invalid multipart upload request'
+    });
+  }
+
+  if (err && typeof err.message === 'string' && err.message.includes('Only PDF')) {
+    return res.status(400).json({
+      error: 'Invalid file type',
+      message: err.message
+    });
+  }
+
   console.error(err.stack);
   res.status(err.status || 500).json({
     error: 'Internal server error',
