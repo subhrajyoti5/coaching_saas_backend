@@ -85,10 +85,11 @@ const verifyPayment = async (req, res) => {
         data: result
       });
     } else {
+      console.error('Signature mismatch! Check RAZORPAY_KEY_SECRET');
       return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid payment signature' });
     }
   } catch (error) {
-    console.error('Payment verification error:', error);
+    console.error('Payment verification error details:', error);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       error: 'Payment verification failed',
       message: error.message,
