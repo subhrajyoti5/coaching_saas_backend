@@ -73,6 +73,7 @@ const verifyPayment = async (req, res) => {
           }
         });
 
+        console.log('Creating owner user for email:', normalizedEmail);
         // 2. Create User as OWNER
         const user = await tx.user.create({
           data: {
@@ -85,6 +86,7 @@ const verifyPayment = async (req, res) => {
             plan_type: planName?.toLowerCase() || 'basic'
           }
         });
+        console.log('User created successfully:', user.id);
 
         // 3. Update Coaching Center with owner_user_id
         await tx.coachingCenter.update({
