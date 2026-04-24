@@ -41,6 +41,7 @@
     "multer": "^2.0.2",
     "pdf-parse": "^2.4.5",
     "pg": "^8.19.0",
+    "razorpay": "^2.9.6",
     "resend": "^6.12.2",
     "tesseract.js": "^7.0.0"
   },
