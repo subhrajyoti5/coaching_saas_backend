@@ -27,16 +27,16 @@ const createOrder = async (req, res) => {
  */
 const verifyPayment = async (req, res) => {
   try {
-    const { 
-      razorpay_order_id, 
-      razorpay_payment_id, 
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
       razorpay_signature,
       email,
       coachingName,
       mobileNumber,
       planName
     } = req.body;
-    
+
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Missing payment details' });
     }
@@ -80,7 +80,7 @@ const verifyPayment = async (req, res) => {
         return { user, coachingCenter };
       });
 
-      return res.status(HTTP_STATUS.SUCCESS).json({ 
+      return res.status(HTTP_STATUS.SUCCESS).json({
         message: 'Payment verified and account created successfully',
         data: result
       });
