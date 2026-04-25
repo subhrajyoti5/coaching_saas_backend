@@ -254,9 +254,28 @@ const approveClaim = async (claimId, requesterId) => {
     });
 
     // Automatically update student's last_fee_paid_at when claim is approved
+    // Rule: Assign each payment to the oldest unpaid month.
+    const student = await tx.user.findUnique({
+      where: { id: Number(updatedClaim.student_id) },
+      select: { last_fee_paid_at: true }
+    });
+
+    let nextPaidAt;
+    if (!student.last_fee_paid_at) {
+      // First payment. Use today's month as the starting point.
+      nextPaidAt = new Date();
+    } else {
+      nextPaidAt = new Date(student.last_fee_paid_at);
+      nextPaidAt.setMonth(nextPaidAt.getMonth() + 1);
+    }
+
     await tx.user.update({
       where: { id: Number(updatedClaim.student_id) },
-      data: { last_fee_paid_at: new Date() }
+      data: { 
+        last_fee_paid_at: nextPaidAt,
+        is_revoked: false,
+        is_lig: false
+      }
     });
 
     return updatedClaim;

@@ -169,7 +169,11 @@ const markUserAsPaid = async (userId, requesterId) => {
 
   const user = await prisma.user.update({
     where: { id: Number(userId) },
-    data: { last_fee_paid_at: nextPaidAt, is_revoked: false }
+    data: { 
+      last_fee_paid_at: nextPaidAt, 
+      is_revoked: false,
+      is_lig: false
+    }
   });
   await audit({
     userId: requesterId,

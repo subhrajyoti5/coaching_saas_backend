@@ -102,7 +102,11 @@ const recordPayment = async (feeId, paymentData, requesterId) => {
 
     await tx.user.update({
       where: { id: Number(fee.student_id) },
-      data: { last_fee_paid_at: nextPaidAt }
+      data: { 
+        last_fee_paid_at: nextPaidAt,
+        is_revoked: false,
+        is_lig: false
+      }
     });
 
     const refreshed = await tx.fee.findUnique({ where: { id: Number(feeId) } });
