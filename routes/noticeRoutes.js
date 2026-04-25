@@ -13,6 +13,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { teacherOrOwner, studentOrOwner, studentOnly, teacherOnly } = require('../middleware/roles');
 const { validateCoachingAccess } = require('../middleware/coachingIsolation');
 const { validateCreateNotice } = require('../middleware/validation');
+const { validateBillingAccess } = require('../middleware/billingAccess');
 
 // Protected routes
 // Create a new notice (Owner and Teacher can access)
@@ -22,13 +23,13 @@ router.post('/', authenticateToken, teacherOrOwner, validateCreateNotice, create
 router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateCoachingAccess, getNoticesByCoaching);
 
 // Get all notices for a student (extracted from JWT)
-router.get('/my-notices', authenticateToken, studentOnly, getMyNotices);
+router.get('/my-notices', authenticateToken, studentOnly, validateBillingAccess, getMyNotices);
 
 // Get all notices for a teacher (extracted from JWT)
 router.get('/my-batch-notices', authenticateToken, teacherOnly, getMyTeacherNotices);
 
 // Get notice by ID (Owner, Teacher, and Student can access)
-router.get('/:noticeId', authenticateToken, studentOrOwner, getNotice);
+router.get('/:noticeId', authenticateToken, studentOrOwner, validateBillingAccess, getNotice);
 
 // Update a notice (Only the creator or Owner can update)
 router.put('/:noticeId', authenticateToken, teacherOrOwner, updateNotice);

@@ -16,12 +16,13 @@ const {
   validateUploadTeacherDocument,
   validateUpdateTeacherDocument
 } = require('../middleware/validation');
+const { validateBillingAccess } = require('../middleware/billingAccess');
 
 router.post('/upload', authenticateToken, teacherOrOwner, uploadTeacherDocument.single('file'), validateUploadTeacherDocument, uploadDocument);
 router.get('/my-documents', authenticateToken, teacherOrOwner, getMyDocuments);
-router.get('/student-feed', authenticateToken, studentOnly, getStudentFeed);
+router.get('/student-feed', authenticateToken, studentOnly, validateBillingAccess, getStudentFeed);
 router.get('/preview/:token', previewDocument);
-router.get('/:documentId/preview-url', authenticateToken, getPreviewUrl);
+router.get('/:documentId/preview-url', authenticateToken, validateBillingAccess, getPreviewUrl);
 router.put('/:documentId', authenticateToken, teacherOrOwner, validateUpdateTeacherDocument, updateDocument);
 router.delete('/:documentId', authenticateToken, teacherOrOwner, deleteDocument);
 

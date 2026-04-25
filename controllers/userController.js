@@ -95,11 +95,62 @@ const deactivateUser = async (req, res) => {
   }
 };
 
+const revokeAccess = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await userService.setUserRevokeStatus(userId, true, req.user.userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'User access revoked successfully',
+      user
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to revoke access',
+      message: error.message
+    });
+  }
+};
+
+const restoreAccess = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await userService.setUserRevokeStatus(userId, false, req.user.userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'User access restored successfully',
+      user
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to restore access',
+      message: error.message
+    });
+  }
+};
+
+const markAsPaid = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await userService.markUserAsPaid(userId, req.user.userId);
+    return res.status(HTTP_STATUS.SUCCESS).json({
+      message: 'User marked as paid for the current month',
+      user
+    });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      error: 'Failed to mark user as paid',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getUsersByCoaching,
   assignUserToCoaching,
   removeUserFromCoaching,
   getUserById,
   updateUserProfile,
-  deactivateUser
+  deactivateUser,
+  revokeAccess,
+  restoreAccess,
+  markAsPaid
 };

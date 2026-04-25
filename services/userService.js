@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { audit } = require('../utils/auditLogger');
+const { computeStudentStatus } = require('../utils/billingUtils');
 
 const splitName = (name = '') => {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -20,6 +21,9 @@ const mapUserForClient = (user) => {
     lastName,
     name: user.name,
     isActive: Boolean(user.is_active),
+    isRevoked: Boolean(user.is_revoked),
+    lastFeePaidAt: user.last_fee_paid_at,
+    status: computeStudentStatus(user),
     createdAt: user.created_at,
     coachingId: user.coaching_center_id
   };
@@ -112,6 +116,8 @@ const updateUserProfile = async (userId, updateData, requesterId) => {
   if (typeof data.role === 'string' && data.role.trim()) allowed.role = data.role.trim();
   if (typeof data.phone === 'string') allowed.phone = data.phone.trim() || null;
   if (typeof data.is_active === 'boolean') allowed.is_active = data.is_active;
+  if (typeof data.is_revoked === 'boolean') allowed.is_revoked = data.is_revoked;
+  if (data.last_fee_paid_at) allowed.last_fee_paid_at = new Date(data.last_fee_paid_at);
 
   const updatedUser = await prisma.user.update({
     where: { id: Number(userId) },
@@ -131,11 +137,41 @@ const deactivateUser = async (userId, requesterId) => {
   return mapUserForClient(user);
 };
 
+const setUserRevokeStatus = async (userId, isRevoked, requesterId) => {
+  const user = await prisma.user.update({
+    where: { id: Number(userId) },
+    data: { is_revoked: Boolean(isRevoked) }
+  });
+  await audit({
+    userId: requesterId,
+    action: isRevoked ? 'REVOKE_USER_ACCESS' : 'RESTORE_USER_ACCESS',
+    entityType: 'USER',
+    entityId: Number(userId)
+  });
+  return mapUserForClient(user);
+};
+
+const markUserAsPaid = async (userId, requesterId) => {
+  const user = await prisma.user.update({
+    where: { id: Number(userId) },
+    data: { last_fee_paid_at: new Date() }
+  });
+  await audit({
+    userId: requesterId,
+    action: 'MARK_USER_PAID',
+    entityType: 'USER',
+    entityId: Number(userId)
+  });
+  return mapUserForClient(user);
+};
+
 module.exports = {
   getUsersByCoaching,
   assignUserToCoaching,
   removeUserFromCoaching,
   getUserWithCoachingInfo,
   updateUserProfile,
-  deactivateUser
+  deactivateUser,
+  setUserRevokeStatus,
+  markUserAsPaid
 };
