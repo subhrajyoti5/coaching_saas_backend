@@ -239,17 +239,27 @@ const approveClaim = async (claimId, requesterId) => {
     throw new Error('Claim amount mismatch detected');
   }
 
-  const claim = await prisma.paymentClaim.update({
-    where: { id: Number(claimId) },
-    data: {
-      status: CLAIM_STATUS.APPROVED,
-      approved_by: Number(requesterId),
-      approved_at: new Date()
-    },
-    include: {
-      batch: { select: { id: true, name: true, price: true } },
-      student: { select: { id: true, name: true, email: true } }
-    }
+  const claim = await prisma.$transaction(async (tx) => {
+    const updatedClaim = await tx.paymentClaim.update({
+      where: { id: Number(claimId) },
+      data: {
+        status: CLAIM_STATUS.APPROVED,
+        approved_by: Number(requesterId),
+        approved_at: new Date()
+      },
+      include: {
+        batch: { select: { id: true, name: true, price: true } },
+        student: { select: { id: true, name: true, email: true } }
+      }
+    });
+
+    // Automatically update student's last_fee_paid_at when claim is approved
+    await tx.user.update({
+      where: { id: Number(updatedClaim.student_id) },
+      data: { last_fee_paid_at: new Date() }
+    });
+
+    return updatedClaim;
   });
 
   await audit({

@@ -72,12 +72,23 @@ const recordPayment = async (feeId, paymentData, requesterId) => {
   const numericAmount = Number(amount);
   if (!numericAmount || numericAmount <= 0) throw new Error('Payment amount must be greater than 0');
 
-  await prisma.payment.create({
-    data: {
-      fee_id: Number(feeId),
-      amount: numericAmount,
-      recorded_by: requesterId
-    }
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.payment.create({
+      data: {
+        fee_id: Number(feeId),
+        amount: numericAmount,
+        recorded_by: requesterId
+      }
+    });
+
+    // Automatically update student's last_fee_paid_at in User model
+    await tx.user.update({
+      where: { id: Number(fee.student_id) },
+      data: { last_fee_paid_at: new Date() }
+    });
+
+    const refreshed = await tx.fee.findUnique({ where: { id: Number(feeId) } });
+    return refreshed;
   });
 
   await audit({
@@ -87,8 +98,8 @@ const recordPayment = async (feeId, paymentData, requesterId) => {
     entityId: Number(feeId),
     metadata: { amount: numericAmount }
   });
-  const refreshed = await prisma.fee.findUnique({ where: { id: Number(feeId) } });
-  return enrichFee(refreshed);
+
+  return enrichFee(result);
 };
 
 const getFeeById = async (feeId) => {
