@@ -14,9 +14,6 @@ const IST_TIMEZONE = 'Asia/Kolkata';
  * @returns {string} - "paid" | "due" | "revoked" | "lig"
  */
 const computeStudentStatus = (user) => {
-  if (user.is_revoked) return 'revoked';
-  if (user.is_lig) return 'lig';
-
   const now = new Date();
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: IST_TIMEZONE,
@@ -27,8 +24,7 @@ const computeStudentStatus = (user) => {
   
   const [currentYear, currentMonth, currentDay] = formatter.format(now).split('-').map(Number);
 
-  // Target month is the previous month
-  // e.g., In April, we check if March (month 3) is paid.
+  // 1. Calculate Target Month (Previous Month)
   let targetMonth = currentMonth - 1;
   let targetYear = currentYear;
   if (targetMonth === 0) {
@@ -36,20 +32,21 @@ const computeStudentStatus = (user) => {
     targetYear--;
   }
 
-  // Check if paid up to or beyond the target month
+  // 2. Check if paid for the target month (Priority #1: Payment status)
   if (user.last_fee_paid_at) {
     const paidDate = new Date(user.last_fee_paid_at);
     const [paidYear, paidMonth] = formatter.format(paidDate).split('-').map(Number);
 
-    // If paidYear > targetYear OR (paidYear == targetYear AND paidMonth >= targetMonth)
-    // then the student has paid for the previous month.
     if (paidYear > targetYear || (paidYear === targetYear && paidMonth >= targetMonth)) {
       return 'paid';
     }
   }
 
-  // Not paid for the target month.
-  // Check if we are within the grace period (1st to 15th of current month)
+  // 3. Manual Override (Priority #2: Manual Revoke/LIG)
+  if (user.is_revoked) return 'revoked';
+  if (user.is_lig) return 'lig';
+
+  // 4. Default Deadline Check (Priority #3: Automatic Revoke after 15th)
   if (currentDay <= 15) {
     return 'due';
   } else {
