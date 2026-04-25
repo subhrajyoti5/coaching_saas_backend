@@ -23,6 +23,26 @@ const createOrder = async (req, res) => {
 };
 
 /**
+ * Create Subscription (Auto-Pay)
+ */
+const createSubscription = async (req, res) => {
+  try {
+    const { planId, totalCount } = req.body;
+    if (!planId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Razorpay planId is required for Auto-Pay' });
+    }
+
+    const subscription = await razorpayService.createSubscription(planId, totalCount || 12);
+    return res.status(HTTP_STATUS.SUCCESS).json(subscription);
+  } catch (error) {
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      error: 'Failed to create subscription',
+      message: error.message,
+    });
+  }
+};
+
+/**
  * Verify Payment
  */
 const verifyPayment = async (req, res) => {
@@ -125,5 +145,6 @@ const verifyPayment = async (req, res) => {
 
 module.exports = {
   createOrder,
+  createSubscription,
   verifyPayment,
 };

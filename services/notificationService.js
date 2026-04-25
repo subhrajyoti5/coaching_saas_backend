@@ -127,7 +127,7 @@ const initFirebase = () => {
     return false;
   }
 
-  const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
+  const privateKey = privateKeyRaw.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
 
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -257,40 +257,57 @@ const sendPushToUsers = async ({ userIds = [], title, body, data = {}, androidTa
     }
   };
 
-  let response;
-  try {
-    response = await admin.messaging().sendEachForMulticast(message);
-  } catch (error) {
-    console.error('FCM send failed:', {
-      message: error.message,
-      code: error.code || 'unknown',
-      userIdCount: normalizedIds.length,
-      tokenCount: tokens.length,
-      notificationType: data.type || 'unknown'
-    });
+  let successCount = 0;
+  let failureCount = 0;
+  const invalidTokens = [];
+  const failureCodes = {};
+  let hasSendError = false;
+  let lastErrorCode = 'unknown';
+
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
+    const chunkTokens = tokens.slice(i, i + BATCH_SIZE);
+    const chunkMessage = { ...message, tokens: chunkTokens };
+
+    try {
+      const response = await admin.messaging().sendEachForMulticast(chunkMessage);
+      successCount += response.successCount;
+      failureCount += response.failureCount;
+
+      response.responses.forEach((result, idx) => {
+        if (result.success) return;
+
+        const code = result.error?.code || '';
+        if (code) {
+          failureCodes[code] = (failureCodes[code] || 0) + 1;
+        }
+        if (
+          code.includes('registration-token-not-registered') ||
+          code.includes('invalid-registration-token')
+        ) {
+          invalidTokens.push(chunkTokens[idx]);
+        }
+      });
+    } catch (error) {
+      console.error('FCM send chunk failed:', {
+        message: error.message,
+        code: error.code || 'unknown',
+        notificationType: data.type || 'unknown'
+      });
+      hasSendError = true;
+      lastErrorCode = error.code || 'unknown';
+    }
+  }
+
+  if (hasSendError && successCount === 0) {
     return {
       sent: false,
       reason: 'fcm_send_failed',
-      errorCode: error.code || 'unknown'
+      errorCode: lastErrorCode
     };
   }
 
-  const invalidTokens = [];
-  const failureCodes = {};
-  response.responses.forEach((result, idx) => {
-    if (result.success) return;
 
-    const code = result.error?.code || '';
-    if (code) {
-      failureCodes[code] = (failureCodes[code] || 0) + 1;
-    }
-    if (
-      code.includes('registration-token-not-registered') ||
-      code.includes('invalid-registration-token')
-    ) {
-      invalidTokens.push(tokens[idx]);
-    }
-  });
 
   await disableInvalidTokens(invalidTokens);
 
@@ -298,16 +315,16 @@ const sendPushToUsers = async ({ userIds = [], title, body, data = {}, androidTa
     notificationType: data.type || 'unknown',
     userIdCount: normalizedIds.length,
     tokenCount: tokens.length,
-    successCount: response.successCount,
-    failureCount: response.failureCount,
+    successCount,
+    failureCount,
     invalidTokenCount: invalidTokens.length,
     failureCodes
   });
 
   return {
     sent: true,
-    successCount: response.successCount,
-    failureCount: response.failureCount
+    successCount,
+    failureCount
   };
 };
 

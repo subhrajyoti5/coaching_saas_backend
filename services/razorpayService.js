@@ -26,6 +26,26 @@ const createOrder = async (amount, currency = 'INR') => {
 };
 
 /**
+ * Create a Razorpay Subscription (Auto-Pay)
+ * Note: Requires a pre-created plan_id from Razorpay Dashboard
+ */
+const createSubscription = async (planId, totalCount = 12) => {
+  const options = {
+    plan_id: planId,
+    customer_notify: 1,
+    total_count: totalCount, // Number of billing cycles
+  };
+
+  try {
+    const subscription = await razorpay.subscriptions.create(options);
+    return subscription;
+  } catch (error) {
+    console.error('Razorpay subscription creation failed:', error);
+    throw error;
+  }
+};
+
+/**
  * Verify Razorpay payment signature
  */
 const verifyPayment = (orderId, paymentId, signature) => {
@@ -39,5 +59,6 @@ const verifyPayment = (orderId, paymentId, signature) => {
 
 module.exports = {
   createOrder,
+  createSubscription,
   verifyPayment,
 };
