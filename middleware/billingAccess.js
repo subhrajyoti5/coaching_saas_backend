@@ -15,10 +15,10 @@ const validateBillingAccess = async (req, res, next) => {
       return next();
     }
 
-    // Fetch the latest student record to get is_revoked and last_fee_paid_at
+    // Fetch the latest student record to get is_revoked, is_lig and last_fee_paid_at
     const student = await prisma.user.findUnique({
       where: { id: Number(userId) },
-      select: { is_revoked: true, last_fee_paid_at: true }
+      select: { is_revoked: true, is_lig: true, last_fee_paid_at: true }
     });
 
     if (!student) {
@@ -30,12 +30,10 @@ const validateBillingAccess = async (req, res, next) => {
 
     const status = computeStudentStatus(student);
 
-    if (status === 'revoked' || status === 'due') {
+    if (status === 'revoked') {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         error: 'Access Restricted',
-        message: status === 'revoked' 
-          ? 'Your access has been revoked by the teacher. Please contact them for details.' 
-          : 'Your access is temporarily restricted due to pending fees. Please pay by the 15th to maintain access.',
+        message: 'Your access is currently restricted. Please clear your outstanding dues to restore access.',
         status: status,
         code: 'BILLING_RESTRICTED'
       });

@@ -11,6 +11,7 @@ const {
   validateSyllabusUpload,
   validateTestSubmission,
 } = require('../middleware/aiTestValidation');
+const { validateBillingAccess } = require('../middleware/billingAccess');
 const AiTestStudioController = require('../controllers/aiTestStudioController');
 
 const router = express.Router({ mergeParams: true });
@@ -240,6 +241,7 @@ router.delete(
 router.post(
   '/tests/:testId/attempts',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.startTestAttempt
 );
 
@@ -251,6 +253,7 @@ router.post(
 router.post(
   '/tests/:testId/attempts/:attemptId/submit',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.submitTestAttempt
 );
 
@@ -264,6 +267,7 @@ router.post(
 router.get(
   '/attempts/:attemptId/result',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.getAttemptResult
 );
 
@@ -277,6 +281,7 @@ router.get(
 router.get(
   '/tests/:testId/attempt',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.getTestForAttempt
 );
 
@@ -288,6 +293,7 @@ router.get(
 router.post(
   '/tests/:testId/attempts/:attemptId/submit-enhanced',
   authenticateToken,
+  validateBillingAccess,
   validateTestSubmission,
   AiTestStudioController.submitTestAttemptEnhanced
 );
@@ -299,6 +305,7 @@ router.post(
 router.get(
   '/tests/:testId/attempts',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.getStudentAttempts
 );
 
@@ -348,6 +355,7 @@ router.get(
 router.get(
   '/analytics/student/dashboard',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.getStudentDashboard
 );
 
@@ -361,6 +369,7 @@ router.get(
 router.get(
   '/flutter/result/:attemptId',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.getTestResultForFlutter
 );
 
@@ -372,6 +381,7 @@ router.get(
 router.get(
   '/flutter/tests',
   authenticateToken,
+  validateBillingAccess,
   AiTestStudioController.getTestsForStudentFlutter
 );
 

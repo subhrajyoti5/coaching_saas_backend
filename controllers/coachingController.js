@@ -235,6 +235,46 @@ const updateCoachingDetails = async (req, res) => {
   }
 };
 
+const revokeStudentAccess = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const updated = await coachingService.updateBillingStatus(studentId, { is_revoked: true, is_lig: false });
+    return res.status(HTTP_STATUS.SUCCESS).json({ message: 'Access revoked', student: updated });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Failed to revoke access', message: error.message });
+  }
+};
+
+const restoreStudentAccess = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const updated = await coachingService.updateBillingStatus(studentId, { is_revoked: false });
+    return res.status(HTTP_STATUS.SUCCESS).json({ message: 'Access restored', student: updated });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Failed to restore access', message: error.message });
+  }
+};
+
+const markStudentLig = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const updated = await coachingService.updateBillingStatus(studentId, { is_lig: true, is_revoked: false });
+    return res.status(HTTP_STATUS.SUCCESS).json({ message: 'Marked as LIG', student: updated });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Failed to mark as LIG', message: error.message });
+  }
+};
+
+const removeStudentLig = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const updated = await coachingService.updateBillingStatus(studentId, { is_lig: false });
+    return res.status(HTTP_STATUS.SUCCESS).json({ message: 'LIG removed', student: updated });
+  } catch (error) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Failed to remove LIG', message: error.message });
+  }
+};
+
 module.exports = {
   createCoaching,
   getCoachingById,
@@ -249,5 +289,9 @@ module.exports = {
   getStudentsByCoaching,
   deactivateCoaching,
   updateCoachingPhone,
-  updateCoachingDetails
+  updateCoachingDetails,
+  revokeStudentAccess,
+  restoreStudentAccess,
+  markStudentLig,
+  removeStudentLig
 };

@@ -14,13 +14,10 @@ const IST_TIMEZONE = 'Asia/Kolkata';
  * @returns {string} - "paid" | "due" | "revoked" | "lig"
  */
 const computeStudentStatus = (user) => {
-  if (user.is_revoked) {
-    return 'revoked';
-  }
+  if (user.is_revoked) return 'revoked';
+  if (user.is_lig) return 'lig';
 
   const now = new Date();
-  
-  // Get current date parts in IST
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: IST_TIMEZONE,
     year: 'numeric',
@@ -30,22 +27,34 @@ const computeStudentStatus = (user) => {
   
   const [currentYear, currentMonth, currentDay] = formatter.format(now).split('-').map(Number);
 
-  // Check if paid in current month
+  // Target month is the previous month
+  // e.g., In April, we check if March (month 3) is paid.
+  let targetMonth = currentMonth - 1;
+  let targetYear = currentYear;
+  if (targetMonth === 0) {
+    targetMonth = 12;
+    targetYear--;
+  }
+
+  // Check if paid up to or beyond the target month
   if (user.last_fee_paid_at) {
     const paidDate = new Date(user.last_fee_paid_at);
     const [paidYear, paidMonth] = formatter.format(paidDate).split('-').map(Number);
 
-    if (paidYear === currentYear && paidMonth === currentMonth) {
+    // If paidYear > targetYear OR (paidYear == targetYear AND paidMonth >= targetMonth)
+    // then the student has paid for the previous month.
+    if (paidYear > targetYear || (paidYear === targetYear && paidMonth >= targetMonth)) {
       return 'paid';
     }
   }
 
-  // If not paid, check if past due date (15th)
-  if (currentDay > 15) {
+  // Not paid for the target month.
+  // Check if we are within the grace period (1st to 15th of current month)
+  if (currentDay <= 15) {
     return 'due';
+  } else {
+    return 'revoked';
   }
-
-  return 'lig';
 };
 
 module.exports = {

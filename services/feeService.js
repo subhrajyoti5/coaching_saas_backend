@@ -82,9 +82,27 @@ const recordPayment = async (feeId, paymentData, requesterId) => {
     });
 
     // Automatically update student's last_fee_paid_at in User model
+    // Rule: Assign each payment to the oldest unpaid month.
+    // We achieve this by advancing last_fee_paid_at by one month per payment.
+    const student = await tx.user.findUnique({ 
+      where: { id: Number(fee.student_id) },
+      select: { last_fee_paid_at: true, created_at: true }
+    });
+
+    let nextPaidAt;
+    if (!student.last_fee_paid_at) {
+      // First payment ever. Use the month of the fee's due date or student's join date.
+      // We'll use the fee's due_date month as the "first paid month".
+      nextPaidAt = fee.due_date ? new Date(fee.due_date) : new Date();
+    } else {
+      // Advance by one month from the last recorded paid month
+      nextPaidAt = new Date(student.last_fee_paid_at);
+      nextPaidAt.setMonth(nextPaidAt.getMonth() + 1);
+    }
+
     await tx.user.update({
       where: { id: Number(fee.student_id) },
-      data: { last_fee_paid_at: new Date() }
+      data: { last_fee_paid_at: nextPaidAt }
     });
 
     const refreshed = await tx.fee.findUnique({ where: { id: Number(feeId) } });

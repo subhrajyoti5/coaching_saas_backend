@@ -14,7 +14,11 @@ const {
   getStudentsByCoaching,
   deactivateCoaching,
   updateCoachingPhone,
-  updateCoachingDetails
+  updateCoachingDetails,
+  revokeStudentAccess,
+  restoreStudentAccess,
+  markStudentLig,
+  removeStudentLig
 } = require('../controllers/coachingController');
 const { authenticateToken } = require('../middleware/auth');
 const { ownerOnly } = require('../middleware/roles');
@@ -52,6 +56,12 @@ router.put('/:coachingId/students/:studentId', authenticateToken, ownerOnly, val
 
 // Delete a student from coaching (Owner only)
 router.delete('/:coachingId/students/:studentId', authenticateToken, ownerOnly, validateCoachingAccess, deleteStudent);
+
+// Billing Overrides
+router.patch('/:coachingId/students/:studentId/revoke', authenticateToken, ownerOnly, validateCoachingAccess, revokeStudentAccess);
+router.patch('/:coachingId/students/:studentId/restore', authenticateToken, ownerOnly, validateCoachingAccess, restoreStudentAccess);
+router.patch('/:coachingId/students/:studentId/lig', authenticateToken, ownerOnly, validateCoachingAccess, markStudentLig);
+router.patch('/:coachingId/students/:studentId/unlig', authenticateToken, ownerOnly, validateCoachingAccess, removeStudentLig);
 
 // Update coaching center phone (Owner only) - DEPRECATED, use PUT for full details
 router.patch('/:coachingId', authenticateToken, ownerOnly, validateCoachingAccess, validateUpdateCoachingPhone, updateCoachingPhone);

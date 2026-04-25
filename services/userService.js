@@ -22,6 +22,7 @@ const mapUserForClient = (user) => {
     name: user.name,
     isActive: Boolean(user.is_active),
     isRevoked: Boolean(user.is_revoked),
+    isLig: Boolean(user.is_lig),
     lastFeePaidAt: user.last_fee_paid_at,
     status: computeStudentStatus(user),
     createdAt: user.created_at,
@@ -152,9 +153,23 @@ const setUserRevokeStatus = async (userId, isRevoked, requesterId) => {
 };
 
 const markUserAsPaid = async (userId, requesterId) => {
+  const student = await prisma.user.findUnique({
+    where: { id: Number(userId) },
+    select: { last_fee_paid_at: true, created_at: true }
+  });
+
+  let nextPaidAt;
+  if (!student.last_fee_paid_at) {
+    // Default to end of current month if first payment
+    nextPaidAt = new Date();
+  } else {
+    nextPaidAt = new Date(student.last_fee_paid_at);
+    nextPaidAt.setMonth(nextPaidAt.getMonth() + 1);
+  }
+
   const user = await prisma.user.update({
     where: { id: Number(userId) },
-    data: { last_fee_paid_at: new Date() }
+    data: { last_fee_paid_at: nextPaidAt, is_revoked: false }
   });
   await audit({
     userId: requesterId,

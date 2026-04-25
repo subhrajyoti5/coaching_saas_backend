@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { ROLES } = require('../config/constants');
 const { audit } = require('../utils/auditLogger');
+const { computeStudentStatus } = require('../utils/billingUtils');
 
 const splitName = (name = '') => {
   const trimmed = String(name || '').trim();
@@ -268,14 +269,36 @@ const getStudentsByCoaching = async (coachingId) => {
       coaching_center_id: Number(coachingId),
       role: ROLES.STUDENT,
       is_active: true
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      coaching_center_id: true,
+      is_active: true,
+      is_revoked: true,
+      is_lig: true,
+      last_fee_paid_at: true,
     }
   });
 
   return students.map((student) => ({
     ...mapUserSummary(student),
+    isRevoked: student.is_revoked,
+    isLig: student.is_lig,
+    lastFeePaidAt: student.last_fee_paid_at,
+    billingStatus: computeStudentStatus(student),
     gradeLevel: null,
     batchId: null
   }));
+};
+
+const updateBillingStatus = async (studentId, data) => {
+  return await prisma.user.update({
+    where: { id: Number(studentId) },
+    data: data
+  });
 };
 
 const deactivateCoaching = async (coachingId, requesterId) => {
@@ -554,5 +577,6 @@ module.exports = {
   getStudentsByCoaching,
   deactivateCoaching,
   updateCoachingPhone,
-  updateCoachingDetails
+  updateCoachingDetails,
+  updateBillingStatus
 };

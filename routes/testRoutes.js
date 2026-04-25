@@ -29,6 +29,7 @@ const { ownerOnly, teacherOnly, teacherOrOwner, studentOrOwner, studentOnly } = 
 const { validateCoachingAccess, validateStudentAccess } = require('../middleware/coachingIsolation');
 const { validateCreateTest, validateCreateQuestion } = require('../middleware/validation');
 const { uploadTeacherDocument } = require('../middleware/upload');
+const { validateBillingAccess } = require('../middleware/billingAccess');
 
 // Protected routes
 // Create a new test (Owner and Teacher can access)
@@ -41,10 +42,10 @@ router.get('/coaching/:coachingId', authenticateToken, teacherOrOwner, validateC
 router.get('/coaching/:coachingId/performance', authenticateToken, teacherOrOwner, validateCoachingAccess, getCoachingStudentPerformance);
 
 // Get all tests for a batch (Owner, Teacher, and Student can access)
-router.get('/batch/:batchId', authenticateToken, studentOrOwner, getTestsByBatch);
+router.get('/batch/:batchId', authenticateToken, studentOrOwner, validateBillingAccess, getTestsByBatch);
 
 // Get upcoming tests for the authenticated student
-router.get('/my-upcoming', authenticateToken, studentOnly, getMyUpcomingTests);
+router.get('/my-upcoming', authenticateToken, studentOnly, validateBillingAccess, getMyUpcomingTests);
 
 // Add a question to a test (Owner and Teacher can access)
 router.post('/question', authenticateToken, teacherOrOwner, validateCreateQuestion, addQuestionToTest);
@@ -53,13 +54,13 @@ router.post('/question', authenticateToken, teacherOrOwner, validateCreateQuesti
 router.get('/:testId/questions', authenticateToken, teacherOrOwner, getQuestionsByTest);
 
 // Get student-safe attempt questions for a test (student-only)
-router.get('/:testId/attempt-questions', authenticateToken, studentOnly, getAttemptQuestions);
+router.get('/:testId/attempt-questions', authenticateToken, studentOnly, validateBillingAccess, getAttemptQuestions);
 
 // Start a test attempt (student-only)
-router.post('/start-attempt', authenticateToken, studentOnly, startAttempt);
+router.post('/start-attempt', authenticateToken, studentOnly, validateBillingAccess, startAttempt);
 
 // Submit test answers and calculate result (student-only)
-router.post('/submit', authenticateToken, studentOnly, submitTest);
+router.post('/submit', authenticateToken, studentOnly, validateBillingAccess, submitTest);
 
 // Get my results (extracted from JWT)
 router.get('/my-results', authenticateToken, studentOrOwner, getMyResults);
@@ -77,7 +78,7 @@ router.get('/:testId/results', authenticateToken, teacherOrOwner, getTestResults
 router.get('/:testId/leaderboard', authenticateToken, teacherOrOwner, getTeacherLeaderboard);
 
 // Student leaderboard view: top 5 scores + own rank
-router.get('/:testId/my-leaderboard', authenticateToken, studentOnly, getStudentLeaderboard);
+router.get('/:testId/my-leaderboard', authenticateToken, studentOnly, validateBillingAccess, getStudentLeaderboard);
 
 // Publish a test (Owner and Teacher can access)
 router.patch('/:testId/publish', authenticateToken, teacherOrOwner, publishTest);
@@ -91,7 +92,7 @@ router.delete('/:testId', authenticateToken, teacherOrOwner, deleteTest);
 router.post('/upload-question-paper', authenticateToken, teacherOrOwner, uploadTeacherDocument.single('file'), uploadQuestionPaper);
 
 // Submit answer sheet for a test (Student only)
-router.post('/submit-answer-sheet', authenticateToken, studentOnly, uploadTeacherDocument.single('file'), submitAnswerSheet);
+router.post('/submit-answer-sheet', authenticateToken, studentOnly, validateBillingAccess, uploadTeacherDocument.single('file'), submitAnswerSheet);
 
 // Get all submissions for a test (Teacher/Owner only)
 router.get('/:testId/submissions', authenticateToken, teacherOrOwner, getTestSubmissions);
